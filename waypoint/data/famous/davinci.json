@@ -1,0 +1,15 @@
+{
+  "id": "davinci",
+  "name": "Leonardo da Vinci",
+  "birthDate": "1452-04-15",
+  "deathDate": "1519-05-02",
+  "summary": "Renaissance polymath. Eras are approximate, factual framings from public biography.",
+  "eras": [
+    { "title": "Childhood — Vinci & Florence", "from": "1452-04-15", "to": "1466-01-01", "category": "other", "source": "https://www.wikidata.org/wiki/Q762" },
+    { "title": "Apprenticeship with Verrocchio, Florence", "from": "1466-01-01", "to": "1476-01-01", "category": "education", "source": "https://www.wikidata.org/wiki/Q762" },
+    { "title": "Independent master, Florence", "from": "1476-01-01", "to": "1482-01-01", "category": "career", "source": "https://www.wikidata.org/wiki/Q762" },
+    { "title": "Milan, Sforza court — The Last Supper (1495–98)", "from": "1482-01-01", "to": "1499-01-01", "category": "project", "source": "https://www.wikidata.org/wiki/Q762" },
+    { "title": "Florence & Milan — Mona Lisa (1503–06)", "from": "1499-01-01", "to": "1516-01-01", "category": "project", "source": "https://www.wikidata.org/wiki/Q762" },
+    { "title": "France, court of Francis I", "from": "1516-01-01", "to": "1519-05-02", "category": "career", "source": "https://www.wikidata.org/wiki/Q762" }
+  ]
+}

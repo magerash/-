@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/* Brand tokens — see docs/design-system.md ("open water / dawn"). */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-sea: var(--sea);
+  --color-current: var(--current);
+  --color-plan: var(--plan);
+  --color-line: var(--border);
+  --font-sans: var(--font-geist-sans);
+}
+
+:root {
+  --bg: #f7f5f0;
+  --surface: #ffffff;
+  --text: #13212e;
+  --muted: #5b6b78;
+  --sea: #2a9d8f;
+  --current: #e9a23b;
+  --plan: #5a8dee;
+  --border: #e3ddd1;
+}
+
+/* System dark by default; .light / .dark on <html> force a choice. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --bg: #0b1b2b;
+    --surface: #10263a;
+    --text: #e8eef3;
+    --muted: #9fb2c0;
+    --sea: #3fb9a9;
+    --current: #f4b860;
+    --plan: #7aa6f5;
+    --border: #23415a;
+  }
+}
+:root.dark {
+  --bg: #0b1b2b;
+  --surface: #10263a;
+  --text: #e8eef3;
+  --muted: #9fb2c0;
+  --sea: #3fb9a9;
+  --current: #f4b860;
+  --plan: #7aa6f5;
+  --border: #23415a;
+}
+
+html,
+body {
+  height: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Current-week pulse (disabled under reduced motion above). */
+@keyframes waypoint-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--current) 70%, transparent); }
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--current) 0%, transparent); }
+}

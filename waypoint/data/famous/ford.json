@@ -1,0 +1,14 @@
+{
+  "id": "ford",
+  "name": "Henry Ford",
+  "birthDate": "1863-07-30",
+  "deathDate": "1947-04-07",
+  "summary": "Industrialist, founder of Ford Motor Company. Eras are approximate, factual framings.",
+  "eras": [
+    { "title": "Childhood on a Michigan farm", "from": "1863-07-30", "to": "1879-01-01", "category": "other", "source": "https://www.wikidata.org/wiki/Q8011" },
+    { "title": "Machinist & engineer (incl. Edison Illuminating Co.)", "from": "1879-01-01", "to": "1899-08-05", "category": "career", "source": "https://www.wikidata.org/wiki/Q8011" },
+    { "title": "Founded Ford Motor Company (1903); Model T (1908)", "from": "1899-08-05", "to": "1913-01-01", "category": "career", "source": "https://www.wikidata.org/wiki/Q8011" },
+    { "title": "Moving assembly line & the $5 day; mass production", "from": "1913-01-01", "to": "1927-01-01", "category": "project", "source": "https://www.wikidata.org/wiki/Q8011" },
+    { "title": "Later years — Model A, River Rouge", "from": "1927-01-01", "to": "1947-04-07", "category": "career", "source": "https://www.wikidata.org/wiki/Q8011" }
+  ]
+}

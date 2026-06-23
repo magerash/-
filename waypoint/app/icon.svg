@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Waypoint">
+  <rect width="64" height="64" rx="14" fill="#0b1b2b"/>
+  <!-- waves -->
+  <path d="M7 45 q6.5 4 13 0 t13 0 t13 0 t13 0" fill="none" stroke="#2a9d8f" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M7 51 q6.5 4 13 0 t13 0 t13 0 t13 0" fill="none" stroke="#2a9d8f" stroke-width="2.6" stroke-linecap="round" opacity="0.5"/>
+  <!-- mast -->
+  <line x1="32" y1="10" x2="32" y2="41" stroke="#e8eef3" stroke-width="2.2" stroke-linecap="round"/>
+  <!-- sail -->
+  <path d="M32 12 L32 38 L16 38 Z" fill="#e9a23b"/>
+  <!-- hull -->
+  <path d="M13 39 L51 39 Q47 49 32 49 Q17 49 13 39 Z" fill="#e8eef3"/>
+  <!-- person at the helm (stern) -->
+  <circle cx="43" cy="34.5" r="3.1" fill="#5a8dee"/>
+  <line x1="43" y1="37" x2="48" y2="42" stroke="#5a8dee" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

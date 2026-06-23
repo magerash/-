@@ -1,0 +1,14 @@
+{
+  "id": "einstein",
+  "name": "Albert Einstein",
+  "birthDate": "1879-03-14",
+  "deathDate": "1955-04-18",
+  "summary": "Theoretical physicist. Eras are approximate, factual framings from public biography.",
+  "eras": [
+    { "title": "Childhood — Germany & Italy", "from": "1879-03-14", "to": "1896-10-01", "category": "other", "source": "https://www.wikidata.org/wiki/Q937" },
+    { "title": "Studies at ETH Zürich", "from": "1896-10-01", "to": "1900-07-01", "category": "education", "source": "https://www.wikidata.org/wiki/Q937" },
+    { "title": "Patent office, Bern — 1905 Annus Mirabilis (special relativity)", "from": "1902-06-01", "to": "1909-10-01", "category": "career", "source": "https://www.wikidata.org/wiki/Q937" },
+    { "title": "Professorships — 1915 general relativity, 1921 Nobel Prize", "from": "1909-10-01", "to": "1933-01-01", "category": "career", "source": "https://www.wikidata.org/wiki/Q937" },
+    { "title": "Princeton, USA", "from": "1933-10-01", "to": "1955-04-18", "category": "career", "source": "https://www.wikidata.org/wiki/Q937" }
+  ]
+}

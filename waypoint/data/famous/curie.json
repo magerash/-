@@ -1,0 +1,14 @@
+{
+  "id": "curie",
+  "name": "Marie Curie",
+  "birthDate": "1867-11-07",
+  "deathDate": "1934-07-04",
+  "summary": "Physicist and chemist, pioneer of radioactivity. Eras are approximate, factual framings.",
+  "eras": [
+    { "title": "Childhood — Warsaw", "from": "1867-11-07", "to": "1891-11-01", "category": "other", "source": "https://www.wikidata.org/wiki/Q7186" },
+    { "title": "Studies at the Sorbonne, Paris", "from": "1891-11-01", "to": "1894-07-01", "category": "education", "source": "https://www.wikidata.org/wiki/Q7186" },
+    { "title": "Research — polonium & radium (1898); 1903 Nobel Prize in Physics", "from": "1894-07-01", "to": "1906-01-01", "category": "career", "source": "https://www.wikidata.org/wiki/Q7186" },
+    { "title": "Professor at the Sorbonne; 1911 Nobel Prize in Chemistry", "from": "1906-01-01", "to": "1914-01-01", "category": "career", "source": "https://www.wikidata.org/wiki/Q7186" },
+    { "title": "WWI radiology; Radium Institute; later years", "from": "1914-01-01", "to": "1934-07-04", "category": "career", "source": "https://www.wikidata.org/wiki/Q7186" }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "id": "edison",
+  "name": "Thomas Edison",
+  "birthDate": "1847-02-11",
+  "deathDate": "1931-10-18",
+  "summary": "Inventor and businessman. Eras are approximate, factual framings from public biography.",
+  "eras": [
+    { "title": "Childhood; self-taught; telegraph operator", "from": "1847-02-11", "to": "1869-01-01", "category": "other", "source": "https://www.wikidata.org/wiki/Q8743" },
+    { "title": "Independent inventor; first patents", "from": "1869-01-01", "to": "1876-01-01", "category": "career", "source": "https://www.wikidata.org/wiki/Q8743" },
+    { "title": "Menlo Park lab — phonograph (1877), light bulb (1879)", "from": "1876-01-01", "to": "1882-01-01", "category": "project", "source": "https://www.wikidata.org/wiki/Q8743" },
+    { "title": "Electric power systems; Edison Electric / GE", "from": "1882-01-01", "to": "1892-01-01", "category": "career", "source": "https://www.wikidata.org/wiki/Q8743" },
+    { "title": "West Orange lab; motion pictures; later ventures", "from": "1887-01-01", "to": "1931-10-18", "category": "career", "source": "https://www.wikidata.org/wiki/Q8743" }
+  ]
+}
