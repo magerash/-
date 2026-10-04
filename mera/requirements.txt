@@ -1,0 +1,12 @@
+# pipeline + server (Python 3.11)
+pycolmap>=4.2
+sherpa-onnx>=1.12
+opencv-python-headless>=4.10
+numpy
+scipy
+trimesh
+fastapi
+uvicorn
+python-multipart
+# optional: verify exports inside real Blender (python 3.11 only, ~300 MB)
+# bpy==5.0.1

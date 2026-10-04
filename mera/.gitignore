@@ -1,0 +1,11 @@
+# footage-derived data stays on this machine (the repository is public)
+data/projects/*
+!data/projects/.gitkeep
+models/*
+!models/.gitkeep
+__pycache__/
+*.pyc
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/

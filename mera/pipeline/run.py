@@ -1,0 +1,58 @@
+"""Run the whole pipeline for one project: ingest -> transcribe -> facts -> SfM -> site model.
+
+Usage: python pipeline/run.py <project-id> [--from STAGE]
+Stages are idempotent; --from lets you redo the later ones (e.g. after editing annotations.json:
+`python pipeline/run.py plot --from site`).
+"""
+from __future__ import annotations
+
+import sys
+import time
+import traceback
+
+import build_site
+import facts
+import ingest
+import sfm
+import transcribe
+from common import Progress, inputs
+
+STAGES = ["ingest", "transcribe", "facts", "reconstruct", "site"]
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    pid = args[0] if args else "plot"
+    start = args[args.index("--from") + 1] if "--from" in args else "ingest"
+    todo = STAGES[STAGES.index(start):]
+    prog = Progress(pid)
+    videos, voices = inputs(pid)
+    if not videos:
+        prog.update("ingest", "error", "no video in inputs/")
+        raise SystemExit(1)
+    t0 = time.time()
+    for st in todo:
+        try:
+            prog.update(st, "running", "starting", 0.0)
+            if st == "ingest":
+                ingest.main(pid)
+            elif st == "transcribe":
+                transcribe.main(pid)
+            elif st == "facts":
+                facts.main(pid)
+            elif st == "reconstruct":
+                sfm.main(pid)
+                prog.update("reconstruct", "done", "SfM finished", 1.0)
+            elif st == "site":
+                build_site.main(pid)
+        except SystemExit:
+            raise
+        except Exception as e:  # keep the UI informed instead of dying silently
+            prog.update(st, "error", f"{type(e).__name__}: {e}")
+            traceback.print_exc()
+            raise SystemExit(1)
+    print(f"pipeline finished in {time.time() - t0:.0f}s")
+
+
+if __name__ == "__main__":
+    main()
