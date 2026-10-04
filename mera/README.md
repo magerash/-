@@ -1,9 +1,10 @@
 # Mera — your plot, to scale
 
 Mera turns an ordinary phone video of a land plot, plus the owner's spoken description, into a
-true-scale 3D site model you can walk around in the browser. You can describe what you want to
-build in plain words, get variants placed on the land within setback rules, compare them, and
-download any of them as glTF/GLB or OBJ that opens at metric scale in Blender or SketchUp.
+true-scale 3D site model you can walk around in the browser. You make your own building variants,
+adding buildings from a list or in plain words; Mera puts each new building inside the plot within
+the setback rules and checks the layout as you move things. Compare variants side by side and
+download the site or any variant as glTF/GLB or OBJ that opens at metric scale in Blender or SketchUp.
 
 Its character is meant to be honest and calm: every object says whether it was **reconstructed**
 from the video, **stated** by the owner, or **inferred**, uncertain positions carry visible halos,
@@ -32,6 +33,20 @@ make run                        # http://127.0.0.1:8765
 You can also start from the browser: with no survey present, the app opens a **Survey a plot**
 form where you upload files and enter the plot size, and it shows the pipeline's progress live.
 
+### A copy to open without the server
+
+```bash
+make share      # -> data/projects/plot/share: index.html, assets/, data/
+```
+
+This builds the app in static mode (`VITE_STATIC=1`) and packs the site model, transcript, point
+cloud and 200 of the photos (every frame cited as evidence plus cameras spread along the walk)
+next to it. Any static host can serve the folder. `index.html` holds only the page content, so a
+host that adds its own document skeleton can serve it as is. In this mode each viewer's variants
+are kept in the host's per-person store when it offers one (claude.ai artifacts do), otherwise in
+the browser, and exports go through the host's save prompt (3D files arrive zipped). The folder
+contains footage-derived data, so it stays in the git-ignored project directory.
+
 Footage-derived data (`data/projects/*`) and models are git-ignored on purpose. This repository is
 public and the footage shows people, cars and a private property.
 
@@ -41,14 +56,16 @@ public and the footage shows people, cars and a private property.
   the scale was established, independent scale checks, every item with its provenance, and the
   owner's remarks pinned where they were said. Click a remark or a camera to see the source
   frame, then use **Look through this photo** to check the model against reality.
-* **Plan**: type a brief in English or Russian, e.g. *"a two-storey house near the forest, a
-  garage and a sauna by the road"*. Mera shows how it understood the brief (editable), generates
-  up to four genuinely different placements, and checks each against setbacks (SP 53.13330
-  defaults, editable). It also reports sanitary distances, the forest fire buffer (advisory),
-  car access, the largest open lawn, walking distances, and what has to be cleared. Drag a
-  building to move it, press **R** to rotate it, and the checks update when you let go.
-* **Compare**: up to four variants in synchronized 3D views, with today's site as a baseline,
-  plus a table of the numbers that decide.
+* **Plan**: nothing is generated for you. Press **New variant**, then add buildings from the list
+  or describe them in English or Russian, e.g. *"a two-storey house near the forest, a garage and
+  a sauna by the road"*. Each new building gets a spot inside the plot that respects the setbacks
+  (SP 53.13330 defaults, editable) and the buildings you already placed; existing ones never move.
+  Drag a building to move it, press **R** to rotate it and **Delete** to remove it, or change its
+  type, size and storeys in the list. Checks cover setbacks, sanitary distances, the forest fire
+  buffer (advisory), car access, the largest open lawn, walking distances and what has to be
+  cleared. Duplicate a variant to try an alternative; variants are saved with the project.
+* **Compare**: press ⊞ on two to four variants to see them in synchronized 3D views, with
+  today's site as a baseline, plus a table of the numbers that decide.
 * **Measure** (M): click two points. Clicks snap to plot and building corners, and the tool
   reports horizontal distance and height difference.
 * **Walk** (3): eye height 1.65 m above the fitted terrain. Use WASD or the arrow keys.
@@ -66,7 +83,7 @@ public and the footage shows people, cars and a private property.
 | SfM | pycolmap: one RADIAL camera per clip with an ultra-wide prior (owner: "0.6x"), sequential + vocabulary-tree matching, incremental mapping on every 2nd keyframe with loosened thresholds for stabilised phone video | `pipeline/sfm.py` |
 | Merge | Sub-models joined by Sim3 from 3D–3D correspondences (feature matches across models); weak links refused | `pipeline/merge_models.py` |
 | Site model | Gravity from camera up refined by vertical wall planes; fence lines from near-ground structure outside the walking path; road/forest side from where the camera pointed when the owner said "entrance" / "forest"; one similarity scale fitted to the owner's dimensions; terrain plane from the camera track; buildings refitted to wall points | `pipeline/build_site.py` |
-| Planner | Brief parser → program; simulated annealing with hard setbacks; diverse selection; A* paths; rule checks marked *marginal* when they pass by less than the survey error | `web/src/plan/*` |
+| Planner | Brief parser → buildings; simulated annealing places only the newly added ones around those already placed, with hard setbacks; A* paths; rule checks marked *marginal* when they pass by less than the survey error | `web/src/plan/*` |
 | Viewer | React + three.js (react-three-fiber), matte massing, provenance styling, uncertainty halos | `web/src/scene/*` |
 | Export | GLB (glTF is meters, Y-up), OBJ+MTL writer, PLY, then in-browser re-import | `web/src/export/exporters.ts` |
 | Verify | trimesh + real Blender (bpy) re-import, checks the boundary to ±1 cm | `pipeline/verify_export.py` |
@@ -82,7 +99,7 @@ obstacles ("tall structure or trees").
 ## Tests
 
 ```bash
-cd web && npx vitest run                    # parser, solver, geometry + example briefs on the real plot
+cd web && npx vitest run                    # parser, placement, variant editing, geometry + example briefs on the real plot
 python pipeline/test_build_site.py          # synthetic checks of the site-builder geometry
 make run & (cd web && npx playwright test)  # browser journeys on the real survey
 python pipeline/verify_export.py file.glb file_obj.zip points.ply --site data/projects/plot/site.json
@@ -92,7 +109,7 @@ The journeys cover:
 * loading the model
 * orbit, plan and walk navigation, and aligning with a source photo
 * measuring the road boundary (snapped corner to corner)
-* describing a build, then getting and comparing variants
+* making two variants (in words, from the list, removing with Delete), then comparing them
 * exporting GLB and OBJ and re-importing them in trimesh and Blender
 
 See `docs/REPORT.md` for what was reconstructed versus inferred, accuracy, and verification results.

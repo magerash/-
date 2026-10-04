@@ -1,4 +1,5 @@
 import type { FrameInfo, SiteModel, Transcript, Variant } from './types';
+import { STATIC, loadVariants, saveVariants } from './host';
 
 const base = (pid: string) => `/api/projects/${encodeURIComponent(pid)}`;
 
@@ -24,7 +25,7 @@ export interface JobState {
   error?: string;
 }
 
-export const api = {
+const server = {
   projects: () => j<ProjectInfo[]>('/api/projects'),
   create: (name: string, plot?: { width: number[]; depth: number[] }) =>
     j<{ id: string }>('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, ...plot }) }),
@@ -52,3 +53,23 @@ export const api = {
   thumb: (pid: string, frameId: string) => `${base(pid)}/files/thumbs/${frameId}.jpg`,
   frame: (pid: string, frameId: string) => `${base(pid)}/files/frames/${frameId}.jpg`,
 };
+
+// static copy: one survey published as files next to the page (see host.ts)
+const data = (path: string) => `data/${path}`;
+const staticApi: typeof server = {
+  ...server,
+  projects: async () => {
+    const s = await j<SiteModel>(data('site.json'));
+    return [{ id: s.id, name: s.name, inputs: [], hasSite: true, running: false, job: null }];
+  },
+  site: () => j<SiteModel>(data('site.json')),
+  transcript: () => j<Transcript>(data('transcript.json')),
+  frames: async () => (await j<{ frames: FrameInfo[] }>(data('frames.json'))).frames,
+  variants: () => loadVariants(),
+  saveVariants: (_pid: string, variants: Variant[]) => saveVariants(variants),
+  file: (_pid: string, path: string) => data(path),
+  thumb: (_pid: string, frameId: string) => data(`frames/${frameId}.jpg`),
+  frame: (_pid: string, frameId: string) => data(`frames/${frameId}.jpg`),
+};
+
+export const api = STATIC ? staticApi : server;

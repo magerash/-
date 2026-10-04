@@ -6,6 +6,7 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import JSZip from 'jszip';
 import type { SiteModel, Variant } from '../types';
+import { STATIC, fetchBinary, hostSave } from '../host';
 import { MAT_COLORS, elementParts, fenceParts, placedParts, ribbon, terrainGeometry, type MatKey, type Part } from '../scene/geometry';
 
 export interface ExportOptions {
@@ -138,7 +139,7 @@ export async function toOBJZip(scene: THREE.Scene, base: string, readme: string)
  * the glTF / OBJ exports after their Y-up -> Z-up import conversion.
  */
 export async function pointCloudPLY(url: string): Promise<Blob> {
-  const src = new DataView(await (await fetch(url)).arrayBuffer());
+  const src = new DataView(await fetchBinary(url));
   const n = Math.floor(src.byteLength / 15);
   const out = new DataView(new ArrayBuffer(n * 15));
   for (let i = 0; i < n; i++) {
@@ -187,7 +188,9 @@ export async function verifyGLB(buf: ArrayBuffer): Promise<{ boundaryW: number; 
   return { boundaryW: box.max.x - box.min.x, boundaryD: box.max.z - box.min.z, objects, height: all.max.y - all.min.y };
 }
 
-export function download(data: Blob | ArrayBuffer, filename: string) {
+/** Saves a file and resolves with the name it was saved under. */
+export async function download(data: Blob | ArrayBuffer, filename: string): Promise<string> {
+  if (STATIC) return hostSave(data, filename);
   const blob = data instanceof Blob ? data : new Blob([data], { type: 'model/gltf-binary' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -195,4 +198,5 @@ export function download(data: Blob | ArrayBuffer, filename: string) {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  return filename;
 }

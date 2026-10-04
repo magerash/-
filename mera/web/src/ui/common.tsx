@@ -37,4 +37,5 @@ export const ICONS = {
   home: 'M3 11 12 4l9 7M5 10v10h14V10',
   trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
   plus: 'M12 5v14M5 12h14',
+  copy: 'M9 9h11v11H9zM5 15V4h11',
 };

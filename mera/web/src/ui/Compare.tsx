@@ -59,7 +59,7 @@ export function CompareView({ site }: { site: SiteModel }) {
       <div className="center">
         <div className="card">
           <h2>Pick variants to compare</h2>
-          <p className="muted">In Plan, press ⊞ on two to four variants. They appear here side by side with one shared camera and a table of the numbers that matter.</p>
+          <p className="muted">Make variants in Plan, then press ⊞ on two to four of them. They appear here side by side with one shared camera and a table of the numbers that matter.</p>
         </div>
       </div>
     );
@@ -96,7 +96,6 @@ type Row = { label: string; get: (v: Variant) => number | null; unit: string; be
 const ROWS: Row[] = [
   { label: 'Rules broken', get: (v) => v.checks.filter((c) => !c.ok && c.severity === 'rule').length, unit: '', better: 'low' },
   { label: 'Marginal (within survey error)', get: (v) => v.checks.filter((c) => c.ok && c.marginal && c.severity === 'rule').length, unit: '', better: 'low' },
-  { label: 'Matches the brief', get: (v) => v.metrics.briefScore, unit: '%', better: 'high' },
   { label: 'New footprint', get: (v) => v.metrics.footprint, unit: 'm²', better: null },
   { label: 'Plot covered by buildings', get: (v) => v.metrics.coverage, unit: '%', better: null },
   { label: 'Largest open lawn', get: (v) => v.metrics.largestOpen, unit: 'm²', better: 'high' },
@@ -109,7 +108,7 @@ const ROWS: Row[] = [
 ];
 
 export function ComparePanel({ site }: { site: SiteModel }) {
-  const { variants, compare, set, updateVariant } = useStore();
+  const { variants, compare, set } = useStore();
   const list = compare.map((id) => variants.find((v) => v.id === id)).filter(Boolean) as Variant[];
   return (
     <div>
@@ -118,7 +117,7 @@ export function ComparePanel({ site }: { site: SiteModel }) {
         {list.length < 2 ? <p className="small muted">Choose at least two variants with ⊞ in Plan.</p> : (
           <table className="ctable">
             <thead>
-              <tr><th />{list.map((v) => <th key={v.id}><MiniPlan site={site} variant={v} size={64} /><div className="small">{v.name.split(' · ')[0]}</div></th>)}</tr>
+              <tr><th />{list.map((v) => <th key={v.id}><MiniPlan site={site} variant={v} size={64} /><div className="small">{v.name}</div></th>)}</tr>
             </thead>
             <tbody>
               {ROWS.map((r) => {
@@ -146,15 +145,13 @@ export function ComparePanel({ site }: { site: SiteModel }) {
       </div>
       {list.length >= 2 && (
         <div className="section">
-          <h3>Decide</h3>
+          <h3>Variants</h3>
           {list.map((v) => (
             <div key={v.id} className="row" style={{ cursor: 'default' }}>
               <div className="grow"><div className="title">{v.name}</div><div className="small muted">{v.summary}</div></div>
-              <button className="btn sm" aria-pressed={!!v.starred} onClick={() => updateVariant({ ...v, starred: !v.starred })}>{v.starred ? '★ Shortlisted' : '☆ Shortlist'}</button>
               <button className="btn sm" onClick={() => set({ activeVariant: v.id, exportOpen: true })}>Export</button>
             </div>
           ))}
-          <p className="small muted">Shortlisted variants are saved with the project and survive regeneration.</p>
         </div>
       )}
     </div>

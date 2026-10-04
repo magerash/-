@@ -1,6 +1,9 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useStore, activeVariantOf, type Mode } from './store';
 import { api, type ProjectInfo } from './api';
+import { STATIC } from './host';
+import { planSite } from './plan/metrics';
+import { rehydrate } from './plan/variants';
 import SitePanel from './ui/SitePanel';
 import PlanPanel from './ui/PlanPanel';
 import { ComparePanel, CompareView } from './ui/Compare';
@@ -27,12 +30,18 @@ export default function App() {
 
   const open = useCallback(async (id: string) => {
     set({ projectId: id, site: null, loadError: null });
-    const url = new URL(window.location.href);
-    url.searchParams.set('p', id);
-    window.history.replaceState(null, '', url);
+    if (!STATIC) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('p', id);
+      window.history.replaceState(null, '', url);
+    }
     try {
-      const [s, tr, fr, vs] = await Promise.all([api.site(id), api.transcript(id).catch(() => null), api.frames(id).catch(() => []), api.variants(id).catch(() => [])]);
-      set({ site: s, transcript: tr, frames: fr, variants: vs, activeVariant: vs.find((v) => v.starred)?.id ?? vs[0]?.id ?? null, compare: vs.filter((v) => v.starred).map((v) => v.id).slice(0, 4) });
+      const [s, tr, fr, saved] = await Promise.all([api.site(id), api.transcript(id).catch(() => null), api.frames(id).catch(() => []), api.variants(id).catch(() => [])]);
+      // checks and numbers are recomputed from the buildings, so saved variants follow the current rules
+      const ps = planSite(s);
+      const rules = useStore.getState().rules;
+      const vs = saved.map((v) => rehydrate(ps, v, rules));
+      set({ site: s, transcript: tr, frames: fr, variants: vs, activeVariant: vs[0]?.id ?? null, compare: [] });
       setScreen('site');
     } catch (e) {
       set({ loadError: (e as Error).message });

@@ -8,7 +8,7 @@ import { useStore, activeVariantOf } from '../store';
 import { terrainHeight, toWorld } from './geometry';
 import { labelPortal } from './labelPortal';
 import { COLORS } from './materials';
-import { reevaluate } from '../plan/solver';
+import { refresh, removeItem } from '../plan/variants';
 import { planSite } from '../plan/metrics';
 
 const EYE = 1.65;
@@ -307,7 +307,7 @@ export function DragLayer({ site }: { site: SiteModel }) {
     const up = () => {
       const st = useStore.getState();
       const v = activeVariantOf(st);
-      if (v) st.updateVariant(reevaluate(ps, { ...v, edited: true }, st.rules));
+      if (v) st.updateVariant(refresh(ps, v, st.rules));
       st.set({ dragging: null });
       dragEnded.at = performance.now();
       document.body.style.cursor = '';
@@ -316,15 +316,21 @@ export function DragLayer({ site }: { site: SiteModel }) {
     return () => window.removeEventListener('pointerup', up);
   }, [dragging, ps]);
   useEffect(() => {
-    // R rotates the selected building by 90 degrees
+    // R rotates the selected building by 90 degrees, Delete removes it
     const kd = (e: KeyboardEvent) => {
-      if (e.key !== 'r' && e.key !== 'R') return;
-      if ((e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).tagName === 'INPUT') return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
       const st = useStore.getState();
       const v = activeVariantOf(st);
       if (!v || st.selection?.kind !== 'placed') return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        st.updateVariant(removeItem(ps, st.rules, v, st.selection.id));
+        st.set({ selection: null });
+        return;
+      }
+      if (e.key !== 'r' && e.key !== 'R') return;
       const placed = v.placed.map((p) => (p.itemId === st.selection!.id && p.type !== 'garage' && p.type !== 'carport' ? { ...p, rot: (p.rot === 0 ? 90 : 0) as 0 | 90, w: p.d, d: p.w } : p));
-      st.updateVariant(reevaluate(ps, { ...v, placed, edited: true }, st.rules));
+      st.updateVariant(refresh(ps, { ...v, placed }, st.rules));
     };
     window.addEventListener('keydown', kd);
     return () => window.removeEventListener('keydown', kd);
@@ -342,7 +348,7 @@ export function DragLayer({ site }: { site: SiteModel }) {
     if (nu === p.u && nv === p.v) return;
     const placed = variant.placed.map((x) => (x.itemId === dragging ? { ...x, u: nu, v: nv } : x));
     // light update while dragging (checks recomputed on release)
-    useStore.getState().updateVariant({ ...variant, placed, edited: true });
+    useStore.getState().updateVariant({ ...variant, placed });
     document.body.style.cursor = 'grabbing';
   };
   return <mesh geometry={geom} visible={false} onPointerMove={onMove} />;

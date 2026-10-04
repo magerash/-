@@ -19,7 +19,7 @@ export default function ExportDialog({ site }: { site: SiteModel }) {
   const [result, setResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const variant = target === 'site' ? null : variants.find((v) => v.id === target) ?? null;
-  const base = `${site.id}_${variant ? variant.name.split(' · ')[0] + '_' + variant.strategy : 'site'}`.replace(/[^\w-]+/g, '_');
+  const base = `${site.id}_${variant ? variant.name : 'site'}`.replace(/[^\w-]+/g, '_');
 
   const go = async () => {
     setBusy(true);
@@ -27,8 +27,8 @@ export default function ExportDialog({ site }: { site: SiteModel }) {
     try {
       if (fmt === 'ply') {
         if (!site.pointcloud) throw new Error('no point cloud');
-        download(await pointCloudPLY(api.file(pid, site.pointcloud.url)), `${site.id}_points.ply`);
-        setResult(`Saved ${site.pointcloud.count.toLocaleString()} points (meters, Z-up, same place as the 3D files in Blender).`);
+        const name = await download(await pointCloudPLY(api.file(pid, site.pointcloud.url)), `${site.id}_points.ply`);
+        setResult(`Saved ${name}: ${site.pointcloud.count.toLocaleString()} points (meters, Z-up, same place as the 3D files in Blender).`);
         return;
       }
       const scene = buildExportScene(site, variant, opt);
@@ -36,19 +36,19 @@ export default function ExportDialog({ site }: { site: SiteModel }) {
       const edges = site.plot.edges.map((e) => `${e.id} ${e.modelLength.toFixed(2)}`).join(', ');
       if (fmt === 'glb') {
         const buf = await toGLB(scene);
-        download(buf, `${base}.glb`);
         const v = await verifyGLB(buf);
+        const name = await download(buf, `${base}.glb`);
         const same = Math.abs(v.boundaryW - (before.max.x - before.min.x)) < 0.001 && Math.abs(v.boundaryD - (before.max.z - before.min.z)) < 0.001;
-        setResult(`Re-imported the file: fence extents ${v.boundaryW.toFixed(2)} × ${v.boundaryD.toFixed(2)} m, ${v.objects} objects, ${v.height.toFixed(1)} m tall. ` +
+        setResult(`Saved ${name}. Re-imported the file: fence extents ${v.boundaryW.toFixed(2)} × ${v.boundaryD.toFixed(2)} m, ${v.objects} objects, ${v.height.toFixed(1)} m tall. ` +
           (same ? '✓ identical to the model, 1 unit = 1 m.' : '⚠ differs from the model!') + ` Boundary edges (m): ${edges}.`);
       } else {
         const blob = await toOBJZip(scene, base, readmeFor(site, variant));
-        download(blob, `${base}_obj.zip`);
+        const name = await download(blob, `${base}_obj.zip`);
         const { obj } = toOBJ(scene, `${base}.mtl`);
         const parsed = new OBJLoader().parse(obj);
         const bnd = new THREE.Box3();
         parsed.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.name.startsWith('Boundary/')) bnd.expandByObject(o); });
-        setResult(`OBJ + MTL + README in a zip. Re-parsed: boundary ${(bnd.max.x - bnd.min.x).toFixed(2)} × ${(bnd.max.z - bnd.min.z).toFixed(2)} units = meters.`);
+        setResult(`Saved ${name}: OBJ + MTL + README. Re-parsed: boundary ${(bnd.max.x - bnd.min.x).toFixed(2)} × ${(bnd.max.z - bnd.min.z).toFixed(2)} units = meters.`);
       }
     } catch (e) {
       setResult('Export failed: ' + (e as Error).message);
@@ -65,7 +65,7 @@ export default function ExportDialog({ site }: { site: SiteModel }) {
           <div className="small" style={{ marginBottom: 4, color: 'var(--ink-2)' }}>What</div>
           <select value={target} onChange={(e) => setTarget(e.target.value)} style={{ width: '100%', padding: 6, borderRadius: 6, border: '1px solid var(--line-2)' }} aria-label="what to export">
             <option value="site">The site as it is today</option>
-            {variants.map((v) => <option key={v.id} value={v.id}>{v.name}{v.starred ? ' ★' : ''}</option>)}
+            {variants.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
           <div className="small" style={{ margin: '12px 0 4px', color: 'var(--ink-2)' }}>Format</div>
           <div className="seg">

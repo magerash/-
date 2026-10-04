@@ -78,22 +78,39 @@ test('measures a boundary at about 48-49 m', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('describes a build, gets placed variants, compares and exports at true scale', async ({ page }) => {
+test('makes own variants, compares them and exports at true scale', async ({ page }) => {
   const errors = await open(page);
   mkdirSync(OUT, { recursive: true });
   await page.getByRole('navigation').getByText('Plan').click();
+  // nothing is generated on its own
+  await expect(page.getByTestId('variant-card')).toHaveCount(0);
+  await page.getByRole('button', { name: 'New variant' }).click();
+  await expect(page.getByTestId('variant-card')).toHaveCount(1);
+  await expect(page.getByLabel('Variant name')).toHaveValue('Variant 1');
+  // describe buildings in words: they are placed inside the plot
   await page.getByLabel('Building brief').fill('a two-storey house near the forest, a garage and a sauna by the road');
-  await page.getByText('Generate variants').click();
-  await expect(page.getByTestId('variant-card').first()).toBeVisible({ timeout: 90_000 });
-  const n = await page.getByTestId('variant-card').count();
-  expect(n).toBeGreaterThanOrEqual(2);
-  await expect(page.getByText('Understood as')).toBeVisible();
+  await page.getByRole('button', { name: 'Add to this variant' }).click();
+  await expect(page.getByTestId('building-row')).toHaveCount(3, { timeout: 90_000 });
   await expect(page.locator('.item select[aria-label=type]').first()).toHaveValue('house');
+  // add one from the list, then remove it with the Delete key
+  await page.getByLabel('Building to add').selectOption('shed');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByTestId('building-row')).toHaveCount(4, { timeout: 30_000 });
+  await page.keyboard.press('Delete');
+  await expect(page.getByTestId('building-row')).toHaveCount(3);
+  // a second variant with just a house
+  await page.getByRole('button', { name: 'New variant' }).click();
+  await expect(page.getByLabel('Variant name')).toHaveValue('Variant 2');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByTestId('building-row')).toHaveCount(1, { timeout: 30_000 });
+  await page.getByRole('button', { name: 'Compare Variant 1' }).click();
+  await page.getByRole('button', { name: 'Compare Variant 2' }).click();
+  await page.getByTestId('variant-card').first().click();
   // compare
   await page.getByRole('navigation').getByText('Compare').click();
   await expect(page.getByRole('heading', { name: 'Side by side' })).toBeVisible();
-  await expect(page.locator('.compare-cell')).toHaveCount(n >= 3 ? 4 : 2);
-  // export the first variant as GLB and OBJ, then re-import both in trimesh + Blender
+  await expect(page.locator('.compare-cell')).toHaveCount(2);
+  // export Variant 1 as GLB and OBJ, then re-import both in trimesh + Blender
   const files: string[] = [];
   for (const fmt of ['glTF (.glb)', 'OBJ (.zip)']) {
     await page.locator('header').getByText('Export').click();

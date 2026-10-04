@@ -231,7 +231,6 @@ export interface Metrics {
 export interface Variant {
   id: string;
   name: string;
-  strategy: string;
   summary: string;
   brief: string;
   program: Program;
@@ -240,9 +239,7 @@ export interface Variant {
   paths: Vec2[][];
   metrics: Metrics;
   checks: Check[];
-  starred?: boolean;
   createdAt: string;
-  edited?: boolean;
 }
 
 export interface Rules {

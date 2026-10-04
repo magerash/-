@@ -8,9 +8,10 @@ page.on('pageerror', (e) => errs.push(e.message));
 await page.goto(url);
 await page.waitForTimeout(3000);
 await page.click('text=Plan');
+await page.click('text=New variant');
 await page.click('text=A two-storey house near the forest');
-await page.click('text=Generate variants');
-await page.waitForSelector('[data-testid=variant-card]', { timeout: 60000 });
+await page.click('text=Add to this variant');
+await page.waitForSelector('[data-testid=building-row]', { timeout: 60000 });
 const results = [];
 for (const [what, fmt] of [['site', 'glb'], ['variant', 'glb'], ['variant', 'obj'], ['site', 'ply']]) {
   await page.click('header >> text=Export');

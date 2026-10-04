@@ -1,22 +1,23 @@
-import type { Program, Rules, Variant } from '../types';
+import type { Placed, Program, Rules } from '../types';
 import type { PlanSite } from './metrics';
-import { generateVariants } from './solver';
+import { placeItems } from './solver';
 
 let worker: Worker | null = null;
 let seq = 0;
 
-export function solve(site: PlanSite, program: Program, rules: Rules, brief: string): Promise<Variant[]> {
-  if (typeof Worker === 'undefined') return Promise.resolve(generateVariants(site, program, rules, brief));
+/** Finds spots for the program's buildings that are not in `fixed`, off the main thread. */
+export function place(site: PlanSite, program: Program, fixed: Placed[], rules: Rules, seed = 1): Promise<Placed[]> {
+  if (typeof Worker === 'undefined') return Promise.resolve(placeItems(site, program, fixed, rules, seed).placed);
   if (!worker) worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
   const id = ++seq;
   return new Promise((resolve, reject) => {
     const w = worker!;
-    const onMsg = (e: MessageEvent<{ id: number; variants?: Variant[]; error?: string }>) => {
+    const onMsg = (e: MessageEvent<{ id: number; placed?: Placed[]; error?: string }>) => {
       if (e.data.id !== id) return;
       w.removeEventListener('message', onMsg);
-      if (e.data.error) reject(new Error(e.data.error)); else resolve(e.data.variants!);
+      if (e.data.error) reject(new Error(e.data.error)); else resolve(e.data.placed!);
     };
     w.addEventListener('message', onMsg);
-    w.postMessage({ id, site, program, rules, brief });
+    w.postMessage({ id, site, program, fixed, rules, seed });
   });
 }

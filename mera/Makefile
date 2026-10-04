@@ -23,10 +23,14 @@ run: build        ## serve the app + API on http://127.0.0.1:$(PORT)
 dev:              ## API on :$(PORT) and Vite dev server on :5173 (proxying /api)
 	($(PY) -m uvicorn server.app:app --host 127.0.0.1 --port $(PORT) &) ; cd web && npx vite
 
+share: build      ## self-contained static copy of the survey in data/projects/$(PID)/share (holds footage-derived data)
+	cd web && VITE_STATIC=1 npx vite build --base ./ --outDir dist-static
+	$(PY) pipeline/make_share.py $(PID)
+
 test:             ## unit tests + browser journeys (server must be running)
 	cd web && npx vitest run && npx playwright test
 
 verify:           ## re-import exported files in trimesh and Blender: make verify FILES="a.glb b_obj.zip"
 	$(PY) pipeline/verify_export.py $(FILES) --site data/projects/$(PID)/site.json
 
-.PHONY: setup pipeline site build run dev test verify
+.PHONY: setup pipeline site build run dev share test verify

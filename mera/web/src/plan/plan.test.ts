@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseBrief } from './brief';
-import { generateVariants } from './solver';
+import { placeItems } from './solver';
+import { createVariant, mergeItems, refresh, removeItem, updateItem } from './variants';
 import { planSite } from './metrics';
 import { DEFAULT_RULES } from './catalog';
 import type { SiteElement, SiteModel } from '../types';
@@ -69,39 +70,76 @@ describe('brief parser', () => {
   });
 });
 
-describe('solver', () => {
-  it('places every building inside the plot and honours setbacks', () => {
+describe('placement', () => {
+  it('places every requested building inside the plot and honours setbacks', () => {
     const site = fakeSite();
     const ps = planSite(site);
     const prog = parseBrief('a two-storey house near the forest, a garage and a sauna by the road', site.elements);
-    const vs = generateVariants(ps, prog, DEFAULT_RULES, 'x');
-    expect(vs.length).toBeGreaterThanOrEqual(2);
-    for (const v of vs) {
-      for (const p of v.placed) {
-        expect(p.u - p.w / 2).toBeGreaterThanOrEqual(0.99);
-        expect(p.u + p.w / 2).toBeLessThanOrEqual(48.5 - 0.99);
-        expect(p.v - p.d / 2).toBeGreaterThanOrEqual(0.99);
-        expect(p.v + p.d / 2).toBeLessThanOrEqual(50 - 0.99);
-      }
-      const house = v.placed.find((p) => p.type === 'house')!;
-      expect(house.v + house.d / 2).toBeLessThanOrEqual(50 - 3 + 1e-6);
-      expect(house.u - house.w / 2).toBeGreaterThanOrEqual(3 - 1e-6);
-      const broken = v.checks.filter((c) => !c.ok && c.severity === 'rule');
-      expect(broken.map((c) => c.label)).toEqual([]);
+    const v = refresh(ps, { ...createVariant(ps, DEFAULT_RULES, []), program: prog, placed: placeItems(ps, prog, [], DEFAULT_RULES).placed }, DEFAULT_RULES);
+    expect(v.placed.map((p) => p.type).sort()).toEqual(['garage', 'house', 'sauna']);
+    for (const p of v.placed) {
+      expect(p.u - p.w / 2).toBeGreaterThanOrEqual(0.99);
+      expect(p.u + p.w / 2).toBeLessThanOrEqual(48.5 - 0.99);
+      expect(p.v - p.d / 2).toBeGreaterThanOrEqual(0.99);
+      expect(p.v + p.d / 2).toBeLessThanOrEqual(50 - 0.99);
     }
-    const lit = vs[0];
-    const house = lit.placed.find((p) => p.type === 'house')!;
-    const garage = lit.placed.find((p) => p.type === 'garage')!;
+    const house = v.placed.find((p) => p.type === 'house')!;
+    const garage = v.placed.find((p) => p.type === 'garage')!;
+    expect(house.v + house.d / 2).toBeLessThanOrEqual(50 - 3 + 1e-6);
+    expect(house.u - house.w / 2).toBeGreaterThanOrEqual(3 - 1e-6);
     expect(50 - (house.v + house.d / 2)).toBeLessThan(8); // near the forest
     expect(garage.v - garage.d / 2).toBeLessThan(8); // by the road
+    expect(v.checks.filter((c) => !c.ok && c.severity === 'rule').map((c) => c.label)).toEqual([]);
   });
-  it('is deterministic for the same brief', () => {
+  it('leaves buildings the owner already placed where they are', () => {
+    const site = fakeSite();
+    const ps = planSite(site);
+    const first = parseBrief('a garage by the road', site.elements);
+    const fixed = placeItems(ps, first, [], DEFAULT_RULES).placed;
+    const moved = fixed.map((p) => ({ ...p, u: 10, v: 6 })); // the owner dragged it
+    const { program, added } = mergeItems(first, parseBrief('a sauna', site.elements));
+    const out = placeItems(ps, program, moved, DEFAULT_RULES).placed;
+    expect(out[0]).toEqual(moved[0]);
+    expect(out.map((p) => p.itemId)).toEqual([moved[0].itemId, ...added]);
+  });
+  it('is deterministic', () => {
     const site = fakeSite();
     const ps = planSite(site);
     const prog = parseBrief('a house near the forest and a garage by the road', site.elements);
-    const a = generateVariants(ps, prog, DEFAULT_RULES, 'same');
-    const b = generateVariants(ps, prog, DEFAULT_RULES, 'same');
-    expect(a.map((v) => v.placed.map((p) => [p.u, p.v]))).toEqual(b.map((v) => v.placed.map((p) => [p.u, p.v])));
+    const a = placeItems(ps, prog, [], DEFAULT_RULES, 3).placed;
+    const b = placeItems(ps, prog, [], DEFAULT_RULES, 3).placed;
+    expect(a.map((p) => [p.u, p.v])).toEqual(b.map((p) => [p.u, p.v]));
+  });
+});
+
+describe('owner variants', () => {
+  it('start empty and get distinct names', () => {
+    const ps = planSite(fakeSite());
+    const a = createVariant(ps, DEFAULT_RULES, []);
+    const b = createVariant(ps, DEFAULT_RULES, [a]);
+    expect([a.name, b.name]).toEqual(['Variant 1', 'Variant 2']);
+    expect(a.placed).toEqual([]);
+    expect(a.summary).toBe('No buildings yet');
+  });
+  it('keeps item ids unique when briefs are added twice', () => {
+    const site = fakeSite();
+    const a = parseBrief('a sauna', site.elements);
+    const b = parseBrief('a sauna', site.elements);
+    const { program } = mergeItems(mergeItems({ items: [], keep: [], clear: [], notes: [], unparsed: [] }, a).program, b);
+    expect(new Set(program.items.map((i) => i.id)).size).toBe(2);
+  });
+  it('resizes in place and removes buildings', () => {
+    const site = fakeSite();
+    const ps = planSite(site);
+    const prog = parseBrief('a garage by the road', site.elements);
+    let v = refresh(ps, { ...createVariant(ps, DEFAULT_RULES, []), program: prog, placed: placeItems(ps, prog, [], DEFAULT_RULES).placed }, DEFAULT_RULES);
+    const id = v.placed[0].itemId;
+    const before = v.placed[0];
+    v = updateItem(ps, DEFAULT_RULES, v, id, { w: 7 });
+    expect([v.placed[0].u, v.placed[0].v, v.placed[0].w]).toEqual([before.u, before.v, 7]);
+    v = removeItem(ps, DEFAULT_RULES, v, id);
+    expect(v.placed).toEqual([]);
+    expect(v.program.items).toEqual([]);
   });
 });
 

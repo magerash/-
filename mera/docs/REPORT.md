@@ -64,17 +64,18 @@ Open points that the app raises with the owner:
 
 ## Verification
 
-* **Unit tests (vitest, 12 tests):**
+* **Unit tests (vitest, 16 tests):**
   * The parser reads the reference brief in English and Russian, sizes, counts, keep/remove instructions and unknown words.
-  * The solver respects every setback and is deterministic.
+  * Placement respects every setback, honours "near the forest" / "by the road", leaves buildings the owner already placed untouched, and is deterministic.
+  * Variant editing: new variants start empty with distinct names, item ids stay unique when briefs are added twice, resizing keeps a building's position, removing deletes it.
   * Convex overlap areas are correct.
-  * All five example briefs on the real plot produce variants with **no broken rules**, every building inside the boundary.
+  * All five example briefs on the real plot place every building with **no broken rules**, inside the boundary.
 * **Synthetic tests for the site builder:** gravity rotation, quaternion round-trip, fence recovery to ±0.2 m, robust plane fit.
 * **Browser journeys (Playwright on the real survey, all passing):**
   1. Load: dimensions, scale checks and evidence are present.
   2. Navigate: orbit, plan, walk with WASD at 1.65 m, then open a remark and look through its photo.
   3. Measure: clicks near the two road corners snap to them and read **48.5 m** (accepted range 47.5–49.5 m).
-  4. Plan and export: type "a two-storey house near the forest, a garage and a sauna by the road", get several variants (2–4, usually 4), compare them, export GLB and OBJ, and re-import both.
+  4. Plan and export: no variant exists until the owner makes one. Create Variant 1 from "a two-storey house near the forest, a garage and a sauna by the road", add a shed from the list and remove it with Delete, create Variant 2 with a house, compare the two, then export Variant 1 as GLB and OBJ and re-import both.
 * **Re-import in independent tools:**
   * trimesh and **Blender 5.0 (bpy)** at default settings give boundary extents of 48.55 × 50.05 m (the 5 cm fence thickness included).
   * The proposed house, garage and sauna measure **8.00 × 9.00, 4.00 × 6.50 and 6.00 × 4.00 m** in Blender.
@@ -94,6 +95,7 @@ make pipeline     # data/projects/plot/inputs -> site model (~60 min on 4 CPU co
 make run          # http://127.0.0.1:8765
 ```
 Or open the app with no survey present and use **Survey a plot** (upload, then live progress).
+`make share` builds a static copy (app + site model + 200 photos) that opens without the server.
 `python pipeline/verify_export.py <files> --site data/projects/plot/site.json` re-checks any exported file.
 
 Footage-derived data stays in `data/projects/` and is not committed (public repository).

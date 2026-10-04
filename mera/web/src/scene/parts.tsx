@@ -5,6 +5,7 @@ import type { ThreeEvent } from '@react-three/fiber';
 import type { Placed, SiteElement, SiteModel, Variant, Vec2 } from '../types';
 import { useStore } from '../store';
 import { api } from '../api';
+import { fetchBinary } from '../host';
 import { elementParts, haloGeometry, placedParts, ribbon, terrainGeometry, terrainHeight, toWorld } from './geometry';
 import { labelPortal } from './labelPortal';
 import { dragOrigin, groundHit } from './interaction';
@@ -263,7 +264,7 @@ export function PointCloud({ site }: { site: SiteModel }) {
   useEffect(() => {
     if (!site.pointcloud) return;
     let alive = true;
-    fetch(api.file(pid, site.pointcloud.url)).then((r) => r.arrayBuffer()).then((buf) => {
+    fetchBinary(api.file(pid, site.pointcloud.url)).then((buf) => {
       if (!alive) return;
       const n = Math.floor(buf.byteLength / 15);
       const dv = new DataView(buf);

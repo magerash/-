@@ -2,7 +2,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseBrief } from './brief';
-import { cornerReport, generateVariants } from './solver';
+import { cornerReport, placeItems } from './solver';
+import { createVariant, refresh } from './variants';
 import { planSite } from './metrics';
 import { DEFAULT_RULES } from './catalog';
 import type { SiteModel } from '../types';
@@ -23,12 +24,14 @@ describe.skipIf(!has)('real plot', () => {
   ]) {
     it(brief, () => {
       const prog = parseBrief(brief, site.elements);
-      const vs = generateVariants(ps, prog, DEFAULT_RULES, brief);
-      expect(vs.length).toBeGreaterThan(0);
-      const lines = vs.map((v) => `${v.name} | broken: ${v.checks.filter((c) => !c.ok && c.severity === 'rule').map((c) => c.label).join('; ') || 'none'} | clears: ${v.metrics.removed.join(', ') || '-'}`);
-      console.log(`\n${brief}\n  ${lines.join('\n  ')}\n  corner: ${cornerReport(ps, prog, DEFAULT_RULES, corner).join(' / ')}`);
-      // every variant keeps every building inside the owner's boundary
-      for (const v of vs) for (const p of v.placed) {
+      const placed = placeItems(ps, prog, [], DEFAULT_RULES).placed;
+      const v = refresh(ps, { ...createVariant(ps, DEFAULT_RULES, []), program: prog, placed }, DEFAULT_RULES);
+      expect(placed.length).toBe(prog.items.length);
+      const broken = v.checks.filter((c) => !c.ok && c.severity === 'rule').map((c) => c.label);
+      console.log(`\n${brief}\n  placed: ${v.summary} | broken: ${broken.join('; ') || 'none'} | clears: ${v.metrics.removed.join(', ') || '-'}\n  corner: ${cornerReport(ps, prog, DEFAULT_RULES, corner).join(' / ')}`);
+      expect(broken).toEqual([]);
+      // every building stays inside the owner's boundary
+      for (const p of placed) {
         expect(p.u - p.w / 2).toBeGreaterThanOrEqual(0);
         expect(p.u + p.w / 2).toBeLessThanOrEqual(site.plot.width);
         expect(p.v - p.d / 2).toBeGreaterThanOrEqual(0);
