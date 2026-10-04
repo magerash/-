@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { useStore, activeVariantOf } from '../store';
 import type { SiteModel } from '../types';
 import { api } from '../api';
-import { buildExportScene, download, pointCloudPLY, readmeFor, toGLB, toOBJ, toOBJZip, verifyGLB, type ExportOptions } from '../export/exporters';
+import { buildExportScene, download, pointCloudPLY, readmeFor, toGLB, toOBJZip, verifyGLB, type ExportOptions } from '../export/exporters';
 import { Icon, ICONS } from './common';
 
 type Fmt = 'glb' | 'obj' | 'ply';
@@ -15,7 +15,7 @@ export default function ExportDialog({ site }: { site: SiteModel }) {
   const active = useStore(activeVariantOf);
   const [target, setTarget] = useState<string>(active?.id ?? 'site');
   const [fmt, setFmt] = useState<Fmt>('glb');
-  const [opt, setOpt] = useState<ExportOptions>({ includeExisting: true, includeRemoved: false, includeTerrain: true, includePaths: true });
+  const [opt, setOpt] = useState<ExportOptions>({ includeExisting: true, includeRemoved: false, includePaths: true });
   const [result, setResult] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const variant = target === 'site' ? null : variants.find((v) => v.id === target) ?? null;
@@ -28,27 +28,26 @@ export default function ExportDialog({ site }: { site: SiteModel }) {
       if (fmt === 'ply') {
         if (!site.pointcloud) throw new Error('no point cloud');
         const name = await download(await pointCloudPLY(api.file(pid, site.pointcloud.url)), `${site.id}_points.ply`);
-        setResult(`Saved ${name}: ${site.pointcloud.count.toLocaleString()} points (meters, Z-up, same place as the 3D files in Blender).`);
+        setResult(`Saved ${name}: ${site.pointcloud.count.toLocaleString('en')} points (meters, Z-up, same place as the 3D files in Blender).`);
         return;
       }
-      const scene = buildExportScene(site, variant, opt);
-      const before = new THREE.Box3().setFromObject(scene.getObjectByName('Boundary')!);
-      const edges = site.plot.edges.map((e) => `${e.id} ${e.modelLength.toFixed(2)}`).join(', ');
+      const scene = await buildExportScene(pid, site, variant, opt);
+      const before = new THREE.Box3().setFromObject(scene.getObjectByName('Fences')!);
+      const plot = `${(before.max.x - before.min.x).toFixed(2)} × ${(before.max.z - before.min.z).toFixed(2)} m`;
       if (fmt === 'glb') {
         const buf = await toGLB(scene);
         const v = await verifyGLB(buf);
         const name = await download(buf, `${base}.glb`);
-        const same = Math.abs(v.boundaryW - (before.max.x - before.min.x)) < 0.001 && Math.abs(v.boundaryD - (before.max.z - before.min.z)) < 0.001;
-        setResult(`Saved ${name}. Re-imported the file: fence extents ${v.boundaryW.toFixed(2)} × ${v.boundaryD.toFixed(2)} m, ${v.objects} objects, ${v.height.toFixed(1)} m tall. ` +
-          (same ? '✓ identical to the model, 1 unit = 1 m.' : '⚠ differs from the model!') + ` Boundary edges (m): ${edges}.`);
+        const same = Math.abs(v.fenceW - (before.max.x - before.min.x)) < 0.001 && Math.abs(v.fenceD - (before.max.z - before.min.z)) < 0.001;
+        setResult(`Saved ${name} (${(buf.byteLength / 1e6).toFixed(1)} MB). Opened it again: fences ${v.fenceW.toFixed(2)} × ${v.fenceD.toFixed(2)} m, ${v.textures} textures, ${v.objects} objects. ` +
+          (same ? `✓ Same as the model (${plot}), 1 unit = 1 m.` : '⚠ Differs from the model!'));
       } else {
-        const blob = await toOBJZip(scene, base, readmeFor(site, variant));
+        const { blob, obj, textures } = await toOBJZip(pid, scene, base, readmeFor(site, variant));
         const name = await download(blob, `${base}_obj.zip`);
-        const { obj } = toOBJ(scene, `${base}.mtl`);
         const parsed = new OBJLoader().parse(obj);
         const bnd = new THREE.Box3();
-        parsed.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.name.startsWith('Boundary/')) bnd.expandByObject(o); });
-        setResult(`Saved ${name}: OBJ + MTL + README. Re-parsed: boundary ${(bnd.max.x - bnd.min.x).toFixed(2)} × ${(bnd.max.z - bnd.min.z).toFixed(2)} units = meters.`);
+        parsed.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.name.startsWith('Fences/')) bnd.expandByObject(o); });
+        setResult(`Saved ${name} (${(blob.size / 1e6).toFixed(1)} MB): OBJ, MTL, ${textures} textures and a README. Read back: fences ${(bnd.max.x - bnd.min.x).toFixed(2)} × ${(bnd.max.z - bnd.min.z).toFixed(2)} units = meters.`);
       }
     } catch (e) {
       setResult('Export failed: ' + (e as Error).message);
@@ -75,14 +74,13 @@ export default function ExportDialog({ site }: { site: SiteModel }) {
           </div>
           {fmt !== 'ply' && (
             <div style={{ marginTop: 10 }} className="small">
-              <label className="opt"><input type="checkbox" checked={opt.includeExisting} onChange={(e) => setOpt({ ...opt, includeExisting: e.target.checked })} />Existing structures, beds and trees</label>
+              <label className="opt"><input type="checkbox" checked={opt.includeExisting} onChange={(e) => setOpt({ ...opt, includeExisting: e.target.checked })} />Buildings, yard and trees as they are today</label>
               {variant && <label className="opt"><input type="checkbox" checked={opt.includeRemoved} onChange={(e) => setOpt({ ...opt, includeRemoved: e.target.checked })} />Also things this variant clears (named TO_CLEAR_…)</label>}
-              <label className="opt"><input type="checkbox" checked={opt.includeTerrain} onChange={(e) => setOpt({ ...opt, includeTerrain: e.target.checked })} />Ground plate with the measured slope</label>
               {variant && <label className="opt"><input type="checkbox" checked={opt.includePaths} onChange={(e) => setOpt({ ...opt, includePaths: e.target.checked })} />Paths and driveway</label>}
             </div>
           )}
           <p className="small muted" style={{ margin: '10px 0' }}>
-            Units are meters at true scale. glTF opens directly in Blender (File › Import › glTF). For SketchUp use OBJ and pick “Meters” on import.
+            Textured from the video, in meters at true scale; ground and fences are always included. glTF opens directly in Blender (File › Import › glTF). For SketchUp use OBJ and pick “Meters” on import.
           </p>
           <button className="btn primary" onClick={go} disabled={busy} data-testid="do-export"><Icon d={ICONS.download} size={14} />{busy ? 'Preparing…' : 'Download'}</button>
           {result && <div className="note" style={{ marginTop: 10 }} data-testid="export-result">{result}</div>}

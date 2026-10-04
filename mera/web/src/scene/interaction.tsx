@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Html, Line, OrbitControls } from '@react-three/drei';
 import type { OrbitControls as OrbitImpl } from 'three-stdlib';
-import type { SiteModel, Variant, Vec2 } from '../types';
+import type { SiteModel, Variant } from '../types';
 import { useStore, activeVariantOf } from '../store';
 import { terrainHeight, toWorld } from './geometry';
 import { labelPortal } from './labelPortal';
@@ -18,6 +18,21 @@ function plotCenter(site: SiteModel) {
   const vs = site.plot.edges.map((e) => e.a[1]);
   const u = (Math.min(...us) + Math.max(...us)) / 2, v = (Math.min(...vs) + Math.max(...vs)) / 2;
   return toWorld(u, v, terrainHeight(site, u, v));
+}
+
+/** Opening view: above the road, a little left of the gate, looking into the plot. */
+export function homeView(site: SiteModel, aspect = 1.4) {
+  const W = site.plot.width, D = site.plot.depth;
+  const tu = W * 0.5, tv = D * 0.47;
+  const target = toWorld(tu, tv, terrainHeight(site, tu, tv));
+  // far enough that the whole plot fits, further on narrow screens
+  const dist = 1.6 * Math.max(W, D) * Math.max(1, 1.35 / aspect);
+  // looking from the road, a little left of the gate, 31 degrees down
+  const el = (31 * Math.PI) / 180;
+  const h = dist * Math.cos(el);
+  const du = -0.33, dv = -0.944; // horizontal direction from the plot centre to the camera (u, v)
+  const pos = toWorld(tu + h * du, tv + h * dv, target.y + dist * Math.sin(el));
+  return { target, pos };
 }
 
 /** Orbit / plan / walk navigation plus "look through this photo". */
@@ -37,10 +52,12 @@ export function CameraRig({ site }: { site: SiteModel }) {
   const persp = camera as THREE.PerspectiveCamera;
 
   const home = () => {
-    persp.fov = 45;
+    // from the road, the way you arrive: the house ahead, the sauna behind it to the right
+    const v = homeView(site, persp.aspect);
+    persp.fov = 40;
     persp.updateProjectionMatrix();
-    camera.position.set(center.x + 8, center.y + 44, center.z + 66); // from the road, the way you arrive
-    controls.current?.target.copy(center);
+    camera.position.copy(v.pos);
+    controls.current?.target.copy(v.target);
     controls.current?.update();
   };
   const top = () => {
@@ -56,6 +73,11 @@ export function CameraRig({ site }: { site: SiteModel }) {
   // automation hook (used by the browser journeys): world point -> page pixels with the live camera
   useEffect(() => {
     (window as unknown as { __mera: unknown }).__mera = {
+      look: (pos: [number, number, number], target: [number, number, number]) => {
+        camera.position.set(...pos);
+        controls.current?.target.set(...target);
+        controls.current?.update();
+      },
       project: (x: number, y: number, z: number) => {
         const v = new THREE.Vector3(x, y, z).project(camera);
         const r = gl.domElement.getBoundingClientRect();
@@ -182,7 +204,7 @@ function snapTargets(site: SiteModel, variant: Variant | null) {
   const out: { p: THREE.Vector3; label: string }[] = [];
   for (const e of site.plot.edges) out.push({ p: toWorld(e.a[0], e.a[1], terrainHeight(site, e.a[0], e.a[1])), label: `${e.id} corner` });
   for (const el of site.elements) {
-    if (!['house', 'sauna', 'shed', 'greenhouse', 'deck'].includes(el.kind)) continue;
+    if (!['house', 'sauna', 'shed', 'greenhouse', 'deck', 'woodpile'].includes(el.kind) || el.footprint.length !== 4) continue;
     for (const q of el.footprint) out.push({ p: toWorld(q[0], q[1], terrainHeight(site, q[0], q[1])), label: `${el.label} corner` });
   }
   for (const p of variant?.placed ?? []) {
@@ -352,24 +374,4 @@ export function DragLayer({ site }: { site: SiteModel }) {
     document.body.style.cursor = 'grabbing';
   };
   return <mesh geometry={geom} visible={false} onPointerMove={onMove} />;
-}
-
-/** Thin ring marking the owner's stated build corner. */
-export function Zones({ site }: { site: SiteModel }) {
-  return (
-    <group>
-      {site.zones.map((z) => {
-        const pts = [...z.polygon, z.polygon[0]].map((q: Vec2) => toWorld(q[0], q[1], terrainHeight(site, q[0], q[1]) + 0.06));
-        const c = z.polygon.reduce((s, p) => [s[0] + p[0] / z.polygon.length, s[1] + p[1] / z.polygon.length], [0, 0]);
-        return (
-          <group key={z.id}>
-            <Line points={pts} color={COLORS.stated} lineWidth={2} dashed dashSize={0.6} gapSize={0.35} />
-            <Html portal={labelPortal} position={toWorld(c[0], c[1], terrainHeight(site, c[0], c[1]) + 0.5)} center zIndexRange={[10, 0]}>
-              <div className="lbl" style={{ transform: 'none', borderColor: COLORS.stated, color: COLORS.stated }}>{z.label}</div>
-            </Html>
-          </group>
-        );
-      })}
-    </group>
-  );
 }

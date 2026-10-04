@@ -117,7 +117,7 @@ function VariantEditor({ site, v }: { site: SiteModel; v: Variant }) {
     }).finally(() => setBusy(false));
   };
   const describe = () => {
-    const prog = parseBrief(brief, site.elements);
+    const prog = parseBrief(brief, ps.existing);
     setLast(prog);
     if (prog.items.length || prog.keep.length || prog.clear.length) addProgram(prog, brief.trim());
   };

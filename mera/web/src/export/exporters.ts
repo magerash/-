@@ -1,4 +1,6 @@
-// GLB / OBJ+MTL / PLY export at true metric scale.
+// Textured GLB, OBJ + MTL + JPEG, and PLY export at true metric scale.
+// The export is built from the same textured model the viewer shows (site/model.gltf.json), minus
+// the scenery around the plot, plus the buildings and paths of a variant.
 // glTF is meters and Y-up by specification; OBJ carries no units, so the archive states them.
 // Blender: File > Import > glTF or Wavefront (defaults) -> 1 Blender unit = 1 m, Z-up.
 import * as THREE from 'three';
@@ -7,16 +9,17 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import JSZip from 'jszip';
 import type { SiteModel, Variant } from '../types';
 import { STATIC, fetchBinary, hostSave } from '../host';
-import { MAT_COLORS, elementParts, fenceParts, placedParts, ribbon, terrainGeometry, type MatKey, type Part } from '../scene/geometry';
+import { api } from '../api';
+import { isScenery, loadSiteModel, pickOf } from '../scene/SiteModel';
+import { MAT_COLORS, placedParts, ribbon, type MatKey, type Part } from '../scene/geometry';
 
 export interface ExportOptions {
   includeExisting: boolean;
   includeRemoved: boolean;
-  includeTerrain: boolean;
   includePaths: boolean;
 }
 
-function materials() {
+function plainMaterials() {
   const cache = new Map<MatKey, THREE.MeshStandardMaterial>();
   return (k: MatKey) => {
     if (!cache.has(k)) {
@@ -29,69 +32,98 @@ function materials() {
   };
 }
 
-/** Builds the export scene: one named group per category, one named mesh per part. */
-export function buildExportScene(site: SiteModel, variant: Variant | null, opt: ExportOptions): THREE.Scene {
+const hasAlpha = (m: THREE.Material) => m.alphaTest > 0 || m.transparent;
+
+/**
+ * Export scene: groups Terrain, Fences, Existing, Proposed, Paths; one named node per thing.
+ * Geometry, materials and textures are shared with the viewer's model.
+ */
+export async function buildExportScene(pid: string, site: SiteModel, variant: Variant | null, opt: ExportOptions): Promise<THREE.Scene> {
+  const gltf = await loadSiteModel(pid, site);
   const scene = new THREE.Scene();
   scene.name = variant ? `${site.name} - ${variant.name}` : site.name;
-  const mat = materials();
-  const group = (name: string, parts: Part[]) => {
+  const group = (name: string) => {
     const g = new THREE.Group();
     g.name = name;
-    for (const p of parts) {
-      const mesh = new THREE.Mesh(p.geom, mat(p.mat));
-      mesh.name = p.name;
-      g.add(mesh);
-    }
     scene.add(g);
     return g;
   };
-  group('Boundary', fenceParts(site));
-  if (opt.includeTerrain) group('Terrain', [{ name: `Terrain_plot_slope_${site.terrain.slopePct.toFixed(1)}pct`, geom: terrainGeometry(site), mat: 'terrain' }]);
+  const terrain = group('Terrain'), fences = group('Fences'), existing = group('Existing');
   const removed = new Set(variant?.removed ?? []);
-  if (opt.includeExisting) {
-    const parts: Part[] = [];
-    for (const e of site.elements) {
-      if (removed.has(e.id) && !opt.includeRemoved) continue;
-      for (const p of elementParts(site, e)) parts.push({ ...p, name: (removed.has(e.id) ? 'TO_CLEAR_' : '') + p.name });
-    }
-    group('Existing', parts);
+  for (const node of gltf.scene.children) {
+    if (isScenery(node)) continue; // the scenery around the plot stays in the viewer
+    const p = pickOf(node);
+    const isFence = p?.kind === 'edge';
+    const isThing = !isFence && node.name !== 'terrain';
+    if (isThing && !opt.includeExisting) continue;
+    const gone = !!p && (p.kind === 'element' || p.kind === 'tree') && removed.has(p.id);
+    if (gone && !opt.includeRemoved) continue;
+    const c = node.clone(true);
+    c.name = (gone ? 'TO_CLEAR_' : '') + node.name;
+    c.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+      // photos go out as JPEG; leaf masks keep their alpha as PNG
+      if (m?.map) m.map.userData.mimeType = hasAlpha(m) ? 'image/png' : 'image/jpeg';
+    });
+    (node.name === 'terrain' ? terrain : isFence ? fences : existing).add(c);
   }
   if (variant) {
-    const parts: Part[] = [];
-    for (const p of variant.placed) parts.push(...placedParts(site, p));
-    group('Proposed', parts);
-    if (opt.includePaths) {
-      group('Paths', variant.paths.map((pts, i) => ({ name: `Path_${i + 1}`, geom: ribbon(site, pts, 1.2, 0.04), mat: 'path' as MatKey })));
+    const mat = plainMaterials();
+    const add = (g: THREE.Group, parts: Part[]) => {
+      for (const p of parts) {
+        const mesh = new THREE.Mesh(p.geom, mat(p.mat));
+        mesh.name = p.name;
+        g.add(mesh);
+      }
+    };
+    add(group('Proposed'), variant.placed.flatMap((p) => placedParts(site, p)));
+    if (opt.includePaths && variant.paths.length) {
+      add(group('Paths'), variant.paths.map((pts, i) => ({ name: `Path_${i + 1}`, geom: ribbon(site, pts, 1.2, 0.06), mat: 'path' as MatKey })));
     }
   }
   scene.userData = {
     units: 'meters',
     upAxis: 'Y',
-    frame: 'x = across the plot (left fence -> right fence), -z = road -> forest',
+    frame: 'x = across the plot (left fence -> right fence, seen from the road), -z = road -> forest',
     plot: `${site.plot.width.toFixed(2)} m x ${site.plot.depth.toFixed(2)} m`,
-    source: 'Mera site survey (video + narration)',
-    variant: variant?.name ?? 'existing site',
+    source: 'Mera site model (video and narration)',
+    variant: variant?.name ?? 'the site as filmed',
   };
+  scene.updateMatrixWorld(true);
   return scene;
 }
 
 export async function toGLB(scene: THREE.Scene): Promise<ArrayBuffer> {
-  const exporter = new GLTFExporter();
-  const res = await exporter.parseAsync(scene, { binary: true, includeCustomExtensions: false });
+  const res = await new GLTFExporter().parseAsync(scene, { binary: true });
   return res as ArrayBuffer;
 }
 
-/** Plain OBJ + MTL writer: world-space vertices, one `o` per mesh, `usemtl` per material. */
-export function toOBJ(scene: THREE.Scene, mtlName: string): { obj: string; mtl: string } {
+interface ObjResult { obj: string; mtl: string; textures: Map<string, THREE.Texture> }
+
+/** OBJ + MTL writer: world-space vertices, texture coordinates, one `o` per mesh, `usemtl` per material. */
+export function toOBJ(scene: THREE.Scene, mtlName: string): ObjResult {
   const lines: string[] = [
     '# Mera site export',
     '# UNITS: meters (1 unit = 1 m). Up axis: +Y. Plot frame: +X across the plot, -Z from road to forest.',
     `# ${scene.userData.plot ?? ''}`,
     `mtllib ${mtlName}`,
   ];
-  const mats = new Map<string, THREE.MeshStandardMaterial>();
-  let vOffset = 1;
-  let nOffset = 1;
+  const mats = new Map<string, { name: string; m: THREE.MeshBasicMaterial }>();
+  const used = new Set<string>();
+  const textures = new Map<string, THREE.Texture>();
+  const matName = (m: THREE.MeshBasicMaterial) => {
+    let e = mats.get(m.uuid);
+    if (!e) {
+      let name = (m.name || 'material').replace(/[^\w.-]+/g, '_');
+      for (let k = 2; used.has(name); k++) name = `${(m.name || 'material').replace(/[^\w.-]+/g, '_')}_${k}`;
+      used.add(name);
+      e = { name, m };
+      mats.set(m.uuid, e);
+      if (m.map) textures.set(texFile(m.map), m.map);
+    }
+    return e.name;
+  };
+  let vOff = 1, tOff = 1, nOff = 1;
   scene.updateMatrixWorld(true);
   scene.traverse((o) => {
     const mesh = o as THREE.Mesh;
@@ -99,38 +131,47 @@ export function toOBJ(scene: THREE.Scene, mtlName: string): { obj: string; mtl: 
     const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
     g.applyMatrix4(mesh.matrixWorld);
     if (!g.getAttribute('normal')) g.computeVertexNormals();
-    const pos = g.getAttribute('position');
-    const nor = g.getAttribute('normal');
-    const m = mesh.material as THREE.MeshStandardMaterial;
-    mats.set(m.name, m);
-    const oname = (mesh.parent?.name ? mesh.parent.name + '/' : '') + mesh.name;
-    lines.push(`o ${oname}`, `g ${oname}`);
-    lines.push(`usemtl ${m.name}`);
+    const pos = g.getAttribute('position'), nor = g.getAttribute('normal'), uv = g.getAttribute('uv');
+    const top = mesh.parent && mesh.parent.parent && mesh.parent.parent !== scene ? mesh.parent : mesh;
+    const oname = `${top.parent?.name ?? ''}/${top.name}${top === mesh ? '' : '_' + mesh.name}`;
+    lines.push(`o ${oname}`, `g ${oname}`, `usemtl ${matName(mesh.material as THREE.MeshBasicMaterial)}`);
     for (let i = 0; i < pos.count; i++) lines.push(`v ${pos.getX(i).toFixed(4)} ${pos.getY(i).toFixed(4)} ${pos.getZ(i).toFixed(4)}`);
+    if (uv) for (let i = 0; i < uv.count; i++) lines.push(`vt ${uv.getX(i).toFixed(5)} ${(1 - uv.getY(i)).toFixed(5)}`); // glTF top-left origin -> OBJ bottom-left
     for (let i = 0; i < nor.count; i++) lines.push(`vn ${nor.getX(i).toFixed(4)} ${nor.getY(i).toFixed(4)} ${nor.getZ(i).toFixed(4)}`);
     for (let i = 0; i < pos.count; i += 3) {
-      const a = vOffset + i, b = a + 1, c = a + 2;
-      const na = nOffset + i;
-      lines.push(`f ${a}//${na} ${b}//${na + 1} ${c}//${na + 2}`);
+      const f = [0, 1, 2].map((k) => uv ? `${vOff + i + k}/${tOff + i + k}/${nOff + i + k}` : `${vOff + i + k}//${nOff + i + k}`);
+      lines.push(`f ${f.join(' ')}`);
     }
-    vOffset += pos.count;
-    nOffset += nor.count;
+    vOff += pos.count;
+    nOff += nor.count;
+    if (uv) tOff += uv.count;
   });
-  const mtl: string[] = ['# Mera materials'];
-  for (const [name, m] of mats) {
+  const mtl: string[] = ['# Mera materials. Textures are in textures/ next to this file.'];
+  for (const { name, m } of mats.values()) {
     const c = m.color;
-    mtl.push(`newmtl ${name}`, `Kd ${c.r.toFixed(4)} ${c.g.toFixed(4)} ${c.b.toFixed(4)}`, 'Ka 0 0 0', 'Ks 0 0 0', `d ${m.transparent ? m.opacity : 1}`, 'illum 1', '');
+    mtl.push(`newmtl ${name}`, `Kd ${c.r.toFixed(4)} ${c.g.toFixed(4)} ${c.b.toFixed(4)}`, 'Ka 0 0 0', 'Ks 0 0 0', `d ${m.transparent ? m.opacity : 1}`, 'illum 1');
+    if (m.map) {
+      mtl.push(`map_Kd textures/${texFile(m.map)}`);
+      if (hasAlpha(m)) mtl.push(`map_d textures/${texFile(m.map)}`);
+    }
+    mtl.push('');
   }
-  return { obj: lines.join('\n') + '\n', mtl: mtl.join('\n') };
+  return { obj: lines.join('\n') + '\n', mtl: mtl.join('\n'), textures };
 }
 
-export async function toOBJZip(scene: THREE.Scene, base: string, readme: string): Promise<Blob> {
-  const { obj, mtl } = toOBJ(scene, `${base}.mtl`);
+/** The image file a texture came from (pipeline/model.py names every image after its file). */
+const texFile = (t: THREE.Texture) => t.name || `${t.uuid}.png`;
+
+export async function toOBJZip(pid: string, scene: THREE.Scene, base: string, readme: string): Promise<{ blob: Blob; obj: string; textures: number }> {
+  const { obj, mtl, textures } = toOBJ(scene, `${base}.mtl`);
   const zip = new JSZip();
   zip.file(`${base}.obj`, obj);
   zip.file(`${base}.mtl`, mtl);
   zip.file('README.txt', readme);
-  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  await Promise.all([...textures.keys()].map(async (name) => {
+    zip.file(`textures/${name}`, await fetchBinary(api.file(pid, `site/tex/${name}`)));
+  }));
+  return { blob: await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' }), obj, textures: textures.size };
 }
 
 /**
@@ -164,28 +205,34 @@ export function readmeFor(site: SiteModel, variant: Variant | null): string {
     'AXES: +Y up. +X runs across the plot (left fence -> right fence, seen from the road).',
     '      -Z runs from the road boundary toward the forest.',
     '',
-    `Plot (model): ${site.plot.width.toFixed(2)} m wide x ${site.plot.depth.toFixed(2)} m deep.`,
-    `Owner's figures: ${site.plot.statedWidth.join('-')} m wide, ${site.plot.statedDepth.join('-')} m road->forest.`,
+    `Plot: ${site.plot.edges.map((e) => `${e.id} side ${e.modelLength.toFixed(1)} m`).join(', ')}.`,
     `Expected accuracy: ${site.scale.expectedAccuracy}`,
     '',
+    'Textures: photos from the video (ground, walls, fences) and leaf masks, in textures/.',
     'Blender: File > Import > Wavefront (.obj), default settings (Forward -Z, Up Y). Scene unit: metric, scale 1.0.',
     'SketchUp: File > Import > OBJ, choose Units = Meters and enable "Swap YZ coordinates" (Y-up -> Z-up).',
     '',
-    'Object names ending in _reconstructed come from the video reconstruction; _inferred were placed from',
-    'the video frames and narration without enough 3D evidence; TO_CLEAR_ marks things a variant removes.',
+    'Groups: Terrain, Fences, Existing (buildings, yard things, trees), Proposed and Paths for a variant.',
+    'TO_CLEAR_ marks existing things the variant removes, when they are included.',
   ].join('\n');
 }
 
 /** Re-import a GLB we just produced and measure it, as a self-check shown in the UI. */
-export async function verifyGLB(buf: ArrayBuffer): Promise<{ boundaryW: number; boundaryD: number; objects: number; height: number }> {
-  const loader = new GLTFLoader();
-  const gltf = await loader.parseAsync(buf.slice(0), '');
-  const b = gltf.scene.getObjectByName('Boundary');
-  const box = new THREE.Box3().setFromObject(b ?? gltf.scene);
+export async function verifyGLB(buf: ArrayBuffer): Promise<{ fenceW: number; fenceD: number; objects: number; textures: number; height: number }> {
+  const gltf = await new GLTFLoader().parseAsync(buf.slice(0), '');
+  const f = gltf.scene.getObjectByName('Fences');
+  const box = new THREE.Box3().setFromObject(f ?? gltf.scene);
   const all = new THREE.Box3().setFromObject(gltf.scene);
   let objects = 0;
-  gltf.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) objects++; });
-  return { boundaryW: box.max.x - box.min.x, boundaryD: box.max.z - box.min.z, objects, height: all.max.y - all.min.y };
+  const images = new Set<unknown>();
+  gltf.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    objects++;
+    const map = (m.material as THREE.MeshBasicMaterial).map;
+    if (map?.image) images.add(map.image);
+  });
+  return { fenceW: box.max.x - box.min.x, fenceD: box.max.z - box.min.z, objects, textures: images.size, height: all.max.y - all.min.y };
 }
 
 /** Saves a file and resolves with the name it was saved under. */

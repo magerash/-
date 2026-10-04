@@ -1,7 +1,7 @@
-// Parametric geometry shared by the viewer and the exporters, so what you download is exactly
-// what you looked at. World frame: x = u (m), y = up (m), z = -v (m).
+// Parametric geometry for proposed buildings and paths, shared by the viewer and the exporters, so
+// what you download is exactly what you looked at. World frame: x = u (m), y = up (m), z = -v (m).
 import * as THREE from 'three';
-import type { Placed, SiteElement, SiteModel, Vec2 } from '../types';
+import type { Placed, SiteModel, Vec2 } from '../types';
 
 export const toWorld = (u: number, v: number, y = 0) => new THREE.Vector3(u, y, -v);
 
@@ -132,10 +132,6 @@ export function mergeSimple(geoms: THREE.BufferGeometry[]): THREE.BufferGeometry
   return out;
 }
 
-export function slab(poly: Vec2[], y0: number, h: number) {
-  return prismFromPoly(poly, y0, h);
-}
-
 /** Flat ribbon along a polyline (paths, driveways), draped on the terrain plane. */
 export function ribbon(site: SiteModel | null, pts: Vec2[], width: number, lift = 0.03): THREE.BufferGeometry {
   const pos: number[] = [];
@@ -195,64 +191,13 @@ export interface Part {
   mat: MatKey;
 }
 
-export type MatKey =
-  | 'wall-existing' | 'roof-existing' | 'wall-inferred' | 'roof-inferred' | 'deck' | 'beds' | 'tilled' | 'gravel'
-  | 'glass' | 'tank' | 'trunk' | 'crown' | 'fence' | 'terrain' | 'wall-new' | 'roof-new' | 'path' | 'water' | 'garden-new'
-  | 'paving' | 'rock' | 'forest';
+export type MatKey = 'deck' | 'gravel' | 'glass' | 'wall-new' | 'roof-new' | 'path' | 'water' | 'garden-new' | 'paving';
 
+/** Proposed buildings are plain and light, so they read as new against the textured site. */
 export const MAT_COLORS: Record<MatKey, string> = {
-  'wall-existing': '#b8a487', 'roof-existing': '#6f665e', 'wall-inferred': '#c9bfb0', 'roof-inferred': '#8b847c',
-  deck: '#9a7b5b', beds: '#7b6248', tilled: '#5a4a3c', gravel: '#b4afa5', glass: '#dfe9ea', tank: '#e6e6e0',
-  trunk: '#6d5a48', crown: '#6f8a5c', fence: '#6b4a3d', terrain: '#a9b894', 'wall-new': '#f2eee6', 'roof-new': '#5f7377',
-  path: '#d8d0c0', water: '#6fa3b8', 'garden-new': '#8d7154', paving: '#cfc8bb', rock: '#9c9a92', forest: '#3f5a3c',
+  deck: '#9a7b5b', gravel: '#b4afa5', glass: '#dfe9ea', 'wall-new': '#f2eee6', 'roof-new': '#5f7377',
+  path: '#d8d0c0', water: '#6fa3b8', 'garden-new': '#8d7154', paving: '#cfc8bb',
 };
-
-/** Geometry parts for one surveyed element. */
-export function elementParts(site: SiteModel | null, e: SiteElement): Part[] {
-  const inferred = e.provenance === 'inferred';
-  const y0 = baseHeight(site, e.footprint);
-  const name = `${e.label.replace(/[^\w]+/g, '_')}_${e.provenance}`;
-  switch (e.kind) {
-    case 'house': case 'sauna': case 'shed': case 'woodpile': case 'other': {
-      if (e.footprint.length !== 4) return [{ name, geom: prismFromPoly(e.footprint, y0, e.height), mat: inferred ? 'wall-inferred' : 'wall-existing' }];
-      const f = rectFrame(e.footprint);
-      const { walls, roof } = buildingGeometry({ c: f.c, ang: f.ang, a: f.a, b: f.b, y0, eave: e.height, ridge: e.ridge ?? e.height, roof: e.roof, ridgeAlongA: e.ridgeAxis ? (e.ridgeAxis === 'u') === (Math.abs(Math.cos(f.ang)) > 0.7) : undefined });
-      const parts: Part[] = [{ name: name + '_walls', geom: walls, mat: e.kind === 'woodpile' ? 'deck' : inferred ? 'wall-inferred' : 'wall-existing' }];
-      if (roof) parts.push({ name: name + '_roof', geom: roof, mat: inferred ? 'roof-inferred' : 'roof-existing' });
-      return parts;
-    }
-    case 'greenhouse': {
-      const f = rectFrame(e.footprint);
-      const { walls } = buildingGeometry({ c: f.c, ang: f.ang, a: f.a, b: f.b, y0, eave: e.height, ridge: e.ridge ?? 2.1, roof: 'arch' });
-      return [{ name, geom: walls, mat: 'glass' }];
-    }
-    case 'deck': return [{ name, geom: prismFromPoly(e.footprint, y0, e.height || 0.35), mat: 'deck' }];
-    case 'beds': return [{ name, geom: prismFromPoly(e.footprint, y0, e.height || 0.25), mat: 'beds' }];
-    case 'tilled': return [{ name, geom: prismFromPoly(e.footprint, y0, 0.04), mat: 'tilled' }];
-    case 'parking': return [{ name, geom: prismFromPoly(e.footprint, y0, 0.03), mat: 'gravel' }];
-    case 'rockgarden': return [{ name, geom: prismFromPoly(e.footprint, y0, e.height || 0.5), mat: 'rock' }];
-    case 'tank': return [{ name, geom: prismFromPoly(e.footprint, y0, e.height || 1.15), mat: 'tank' }];
-    case 'trampoline': {
-      const f = rectFrame(e.footprint);
-      const r = Math.max(f.a, f.b) / 2;
-      const g = new THREE.CylinderGeometry(r, r, 0.08, 40);
-      g.translate(f.c[0], y0 + (e.height || 0.9), -f.c[1]);
-      return [{ name, geom: g, mat: 'tank' }];
-    }
-    case 'tree': {
-      const f = rectFrame(e.footprint);
-      const r = Math.max(f.a, f.b) / 2;
-      const h = e.height || 6;
-      const trunk = new THREE.CylinderGeometry(0.12, 0.16, h * 0.45, 8);
-      trunk.translate(f.c[0], y0 + h * 0.225, -f.c[1]);
-      const crown = new THREE.IcosahedronGeometry(1, 1);
-      crown.scale(r, h * 0.36, r);
-      crown.translate(f.c[0], y0 + h * 0.62, -f.c[1]);
-      return [{ name: name + '_trunk', geom: trunk, mat: 'trunk' }, { name: name + '_crown', geom: crown, mat: 'crown' }];
-    }
-    default: return [];
-  }
-}
 
 /** Geometry parts for a proposed building. */
 export function placedParts(site: SiteModel | null, p: Placed): Part[] {
@@ -286,35 +231,4 @@ export function placedParts(site: SiteModel | null, p: Placed): Part[] {
       return parts;
     }
   }
-}
-
-/** Fence panels along the boundary edges. */
-export function fenceParts(site: SiteModel): Part[] {
-  return site.plot.edges.map((e) => {
-    const L = Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]);
-    const ang = Math.atan2(e.b[1] - e.a[1], e.b[0] - e.a[0]);
-    const g = new THREE.BoxGeometry(L, 1.6, 0.05);
-    const c: Vec2 = [(e.a[0] + e.b[0]) / 2, (e.a[1] + e.b[1]) / 2];
-    g.translate(0, 0.8, 0);
-    g.applyMatrix4(new THREE.Matrix4().makeRotationY(ang).setPosition(c[0], terrainHeight(site, c[0], c[1]), -c[1]));
-    return { name: `Boundary_${e.id}_${e.modelLength.toFixed(2)}m`, geom: g, mat: 'fence' as MatKey };
-  });
-}
-
-/** Terrain plate over the plot (plane fitted by the reconstruction), slightly larger than the plot. */
-export function terrainGeometry(site: SiteModel, margin = 0, seg = 24): THREE.BufferGeometry {
-  const us = site.plot.edges.flatMap((e) => [e.a[0], e.b[0]]);
-  const vs = site.plot.edges.flatMap((e) => [e.a[1], e.b[1]]);
-  const u0 = Math.min(...us) - margin, u1 = Math.max(...us) + margin;
-  const v0 = Math.min(...vs) - margin, v1 = Math.max(...vs) + margin;
-  const g = new THREE.PlaneGeometry(u1 - u0, v1 - v0, seg, seg);
-  g.rotateX(-Math.PI / 2);
-  const pos = g.getAttribute('position');
-  for (let i = 0; i < pos.count; i++) {
-    const u = pos.getX(i) + (u0 + u1) / 2;
-    const v = -pos.getZ(i) + (v0 + v1) / 2;
-    pos.setXYZ(i, u, terrainHeight(site, u, v), -v);
-  }
-  g.computeVertexNormals();
-  return g;
 }

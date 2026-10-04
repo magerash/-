@@ -1,10 +1,16 @@
 import type { Provenance } from '../types';
 
-export function Prov({ p }: { p: Provenance }) {
-  const label = p === 'reconstructed' ? 'reconstructed' : p === 'stated' ? 'owner said' : 'inferred';
-  const title = p === 'reconstructed'
-    ? 'Measured from 3D points reconstructed from the video'
-    : p === 'stated' ? "From the owner's own words or figures" : 'Placed from video frames / narration without enough 3D evidence';
+const PROV: Record<Provenance, [string, string]> = {
+  reconstructed: ['measured in 3D', 'Fitted to points reconstructed in 3D from the video'],
+  located: ['located in frames', 'Measured from the video frames: ground hits and rays from several frames'],
+  inferred: ['approximate', 'Placed from the frames and the narration without enough 3D evidence'],
+  given: ['supplied figure', 'Supplied with the job (plot dimensions)'],
+  narration: ['from the narration', "Said in the video by its author"],
+};
+
+export function Prov({ p, bare = false }: { p: Provenance; bare?: boolean }) {
+  const [label, title] = PROV[p] ?? PROV.inferred;
+  if (bare) return <span title={title}>{label}</span>;
   return <span className={`prov ${p}`} title={title}>{label}</span>;
 }
 

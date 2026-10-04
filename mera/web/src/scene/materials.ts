@@ -3,19 +3,14 @@ import { MAT_COLORS, type MatKey } from './geometry';
 
 const cache = new Map<string, THREE.Material>();
 
-/** Matte, calm materials. Inferred geometry is translucent so it never reads as measured. */
-export function mat(key: MatKey, variant: 'solid' | 'inferred' | 'ghost' | 'highlight' = 'solid'): THREE.Material {
+/** Matte, calm materials for proposed buildings; the selected one gets a faint accent glow. */
+export function mat(key: MatKey, variant: 'solid' | 'highlight' = 'solid'): THREE.Material {
   const id = key + ':' + variant;
   let m = cache.get(id);
   if (m) return m;
-  const color = new THREE.Color(MAT_COLORS[key]);
-  const sm = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0, side: THREE.DoubleSide, flatShading: false });
+  const sm = new THREE.MeshStandardMaterial({ color: new THREE.Color(MAT_COLORS[key]), roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
   if (key === 'glass') { sm.transparent = true; sm.opacity = 0.42; sm.roughness = 0.3; sm.depthWrite = false; }
   if (key === 'water') { sm.transparent = true; sm.opacity = 0.8; sm.roughness = 0.2; }
-  if (key === 'crown') { sm.transparent = true; sm.opacity = 0.62; sm.depthWrite = false; }
-  if (key === 'forest') { sm.transparent = true; sm.opacity = 0.35; sm.depthWrite = false; }
-  if (variant === 'inferred') { sm.transparent = true; sm.opacity = Math.min(sm.opacity, 0.5); sm.depthWrite = false; }
-  if (variant === 'ghost') { sm.transparent = true; sm.opacity = 0.16; sm.depthWrite = false; }
   if (variant === 'highlight') { sm.emissive = new THREE.Color('#2c666b'); sm.emissiveIntensity = 0.18; }
   sm.polygonOffset = true;
   sm.polygonOffsetFactor = 1;

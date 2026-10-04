@@ -1,18 +1,24 @@
+// Everything drawn on top of the textured model: the detail layers (all off by default), the
+// selection mark, and the buildings a variant proposes.
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { Html, Line } from '@react-three/drei';
 import type { ThreeEvent } from '@react-three/fiber';
-import type { Placed, SiteElement, SiteModel, Variant, Vec2 } from '../types';
+import type { Placed, Provenance, SiteElement, SiteModel, Tree, Variant, Vec2 } from '../types';
 import { useStore } from '../store';
 import { api } from '../api';
 import { fetchBinary } from '../host';
-import { elementParts, haloGeometry, placedParts, ribbon, terrainGeometry, terrainHeight, toWorld } from './geometry';
+import { haloGeometry, placedParts, ribbon, terrainHeight, toWorld } from './geometry';
 import { labelPortal } from './labelPortal';
 import { dragOrigin, groundHit } from './interaction';
 import { COLORS, lineMat, mat } from './materials';
 import { describeZone } from '../plan/brief';
 
 const fmt = (m: number) => `${m.toFixed(m < 10 ? 2 : 1)} m`;
+const EDGE_NAME = { road: 'Road side', forest: 'Forest side', left: 'Left side', right: 'Right side' } as const;
+export const PROV_COLOR: Record<Provenance, string> = {
+  reconstructed: COLORS.recon, located: '#3f7f8a', inferred: COLORS.inferred, given: COLORS.stated, narration: COLORS.stated,
+};
 
 /** Outline of a geometry, dashed for inferred things. */
 export function Outline({ geom, color, dashed = false, opacity = 1 }: { geom: THREE.BufferGeometry; color: string; dashed?: boolean; opacity?: number }) {
@@ -26,26 +32,12 @@ export function Outline({ geom, color, dashed = false, opacity = 1 }: { geom: TH
   return <primitive object={lines} />;
 }
 
-// ---------------- terrain, grid, context ----------------
+const centerOf = (poly: Vec2[]): Vec2 => [poly.reduce((s, p) => s + p[0], 0) / poly.length, poly.reduce((s, p) => s + p[1], 0) / poly.length];
+const ring = (site: SiteModel, poly: Vec2[], lift: number) => [...poly, poly[0]].map((q) => toWorld(q[0], q[1], terrainHeight(site, q[0], q[1]) + lift));
+const circlePoly = (c: Vec2, r: number, n = 28): Vec2[] => Array.from({ length: n }, (_, i) => [c[0] + r * Math.cos((i / n) * 2 * Math.PI), c[1] + r * Math.sin((i / n) * 2 * Math.PI)] as Vec2);
+export const treeName = (t: Tree) => ({ birch: 'Birch', conifer: 'Pine', fruit: 'Apple tree', deciduous: 'Tree' }[t.species]);
 
-export function Ground({ site }: { site: SiteModel }) {
-  const plot = useMemo(() => terrainGeometry(site, 0, 24), [site]);
-  const outer = useMemo(() => {
-    const g = terrainGeometry(site, 140, 8);
-    g.translate(0, -0.03, 0);
-    return g;
-  }, [site]);
-  return (
-    <group>
-      <mesh geometry={outer} receiveShadow name="ground-outside" userData={{ pickable: true }}>
-        <meshStandardMaterial color="#d9ddd2" roughness={1} />
-      </mesh>
-      <mesh geometry={plot} receiveShadow name="terrain" userData={{ pickable: true }}>
-        <meshStandardMaterial color="#b3c09f" roughness={1} polygonOffset polygonOffsetFactor={2} polygonOffsetUnits={2} />
-      </mesh>
-    </group>
-  );
-}
+// ---------------- detail layers ----------------
 
 export function Grid({ site }: { site: SiteModel }) {
   const geoms = useMemo(() => {
@@ -55,20 +47,14 @@ export function Grid({ site }: { site: SiteModel }) {
     const v0 = Math.floor(Math.min(...vs)), v1 = Math.ceil(Math.max(...vs));
     const mk = (step: number, skip?: number) => {
       const pts: number[] = [];
-      const lift = 0.025;
+      const lift = 0.05;
       for (let u = Math.ceil(u0 / step) * step; u <= u1; u += step) {
         if (skip && Math.abs(u % skip) < 1e-6) continue;
-        for (let v = v0; v < v1; v += 2) {
-          const vb = Math.min(v + 2, v1);
-          pts.push(u, terrainHeight(site, u, v) + lift, -v, u, terrainHeight(site, u, vb) + lift, -vb);
-        }
+        pts.push(u, terrainHeight(site, u, v0) + lift, -v0, u, terrainHeight(site, u, v1) + lift, -v1);
       }
       for (let v = Math.ceil(v0 / step) * step; v <= v1; v += step) {
         if (skip && Math.abs(v % skip) < 1e-6) continue;
-        for (let u = u0; u < u1; u += 2) {
-          const ub = Math.min(u + 2, u1);
-          pts.push(u, terrainHeight(site, u, v) + lift, -v, ub, terrainHeight(site, ub, v) + lift, -v);
-        }
+        pts.push(u0, terrainHeight(site, u0, v) + lift, -v, u1, terrainHeight(site, u1, v) + lift, -v);
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
@@ -78,180 +64,154 @@ export function Grid({ site }: { site: SiteModel }) {
   }, [site]);
   return (
     <group raycast={() => null}>
-      <lineSegments geometry={geoms.minor} material={lineMat('#ffffff', false, 0.22)} />
-      <lineSegments geometry={geoms.major} material={lineMat('#ffffff', false, 0.5)} />
-      <lineSegments geometry={geoms.ten} material={lineMat('#ffffff', false, 0.85)} />
+      <lineSegments geometry={geoms.minor} material={lineMat('#ffffff', false, 0.25)} />
+      <lineSegments geometry={geoms.major} material={lineMat('#ffffff', false, 0.55)} />
+      <lineSegments geometry={geoms.ten} material={lineMat('#ffffff', false, 0.9)} />
     </group>
   );
 }
 
-export function Boundary({ site, labels }: { site: SiteModel; labels: boolean }) {
-  const select = useStore((s) => s.set);
+/** Plot outline with the length of each side and the gate. */
+export function Dimensions({ site }: { site: SiteModel }) {
   const selection = useStore((s) => s.selection);
+  const { u, width } = site.plot.entrance;
+  const gate = toWorld(u, 0, terrainHeight(site, u, 0) + 2.5);
   return (
     <group>
       {site.plot.edges.map((e) => {
-        const a = toWorld(e.a[0], e.a[1], terrainHeight(site, e.a[0], e.a[1]) + 0.04);
-        const b = toWorld(e.b[0], e.b[1], terrainHeight(site, e.b[0], e.b[1]) + 0.04);
+        const a = toWorld(e.a[0], e.a[1], terrainHeight(site, e.a[0], e.a[1]) + 0.08);
+        const b = toWorld(e.b[0], e.b[1], terrainHeight(site, e.b[0], e.b[1]) + 0.08);
         const mid = a.clone().add(b).multiplyScalar(0.5);
         const sel = selection?.kind === 'edge' && selection.id === e.id;
-        const stated = e.statedLength ? `${e.statedLength[0]}${e.statedLength[1] !== e.statedLength[0] ? '–' + e.statedLength[1] : ''} m stated` : 'not stated';
-        const L = a.distanceTo(b);
-        const ang = Math.atan2(-(b.z - a.z), b.x - a.x);
         return (
           <group key={e.id}>
-            <Line points={[a, b]} color={sel ? COLORS.accent : '#3b2c26'} lineWidth={sel ? 4 : 2.5} />
-            {/* fence panel: translucent, clickable */}
-            <mesh position={[mid.x, mid.y + 0.8, mid.z]} rotation={[0, ang, 0]} name={`fence-${e.id}`} userData={{ pickable: true, snapEdge: e.id }}
-              onClick={(ev: ThreeEvent<MouseEvent>) => { if (useStore.getState().tool !== 'none') return; ev.stopPropagation(); select({ selection: { kind: 'edge', id: e.id } }); }}>
-              <boxGeometry args={[L, 1.6, 0.04]} />
-              <meshStandardMaterial color="#6b4a3d" transparent opacity={sel ? 0.5 : 0.28} depthWrite={false} side={THREE.DoubleSide} />
-            </mesh>
+            <Line points={[a, b]} color={sel ? COLORS.accent : '#fbfaf7'} lineWidth={sel ? 4 : 2.5} />
+            <Html portal={labelPortal} position={[mid.x, mid.y + 2.4, mid.z]} center zIndexRange={[10, 0]}>
+              <div className="lbl dim" style={{ transform: 'none' }}>{EDGE_NAME[e.id]} · {fmt(e.modelLength)}</div>
+            </Html>
+          </group>
+        );
+      })}
+      <Html portal={labelPortal} position={gate} center zIndexRange={[10, 0]}>
+        <div className="lbl" style={{ transform: 'none' }}>Gate · {width.toFixed(1)} m</div>
+      </Html>
+    </group>
+  );
+}
+
+/** Names over the structures. */
+export function Labels({ site, variant }: { site: SiteModel; variant: Variant | null }) {
+  const removed = useMemo(() => new Set(variant?.removed ?? []), [variant]);
+  const selection = useStore((s) => s.selection);
+  return (
+    <group>
+      {site.elements.filter((e) => !removed.has(e.id) && e.parent === undefined && !(selection?.kind === 'element' && selection.id === e.id)).map((e) => {
+        const c = e.center ?? centerOf(e.footprint);
+        const p = toWorld(c[0], c[1], terrainHeight(site, c[0], c[1]) + (e.ridge ?? e.height) + 0.8);
+        return (
+          <Html key={e.id} portal={labelPortal} position={p} center zIndexRange={[10, 0]}>
+            <div className="lbl" style={{ transform: 'none' }}>{e.label}</div>
+          </Html>
+        );
+      })}
+    </group>
+  );
+}
+
+/** How well each thing is placed: a band as wide as its position uncertainty, coloured by how it is known. */
+export function Accuracy({ site, variant }: { site: SiteModel; variant: Variant | null }) {
+  const removed = useMemo(() => new Set(variant?.removed ?? []), [variant]);
+  const halos = useMemo(() => site.elements.filter((e) => e.footprint.length >= 3).map((e) => ({ e, g: haloGeometry(site, e.footprint, e.uncertainty) })), [site]);
+  return (
+    <group raycast={() => null}>
+      {halos.filter(({ e }) => !removed.has(e.id)).map(({ e, g }) => (
+        <group key={e.id}>
+          <mesh geometry={g} raycast={() => null} renderOrder={2}>
+            <meshBasicMaterial color={PROV_COLOR[e.provenance]} transparent opacity={0.35} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
+          </mesh>
+          <Line points={ring(site, e.footprint, 0.06)} color={PROV_COLOR[e.provenance]} lineWidth={1.5} dashed={e.provenance === 'inferred'} dashSize={0.4} gapSize={0.25} />
+        </group>
+      ))}
+    </group>
+  );
+}
+
+/** The author's remark about a "corner for something new", where it was said. */
+export function Zones({ site }: { site: SiteModel }) {
+  return (
+    <group>
+      {site.zones.map((z) => {
+        const c = centerOf(z.polygon);
+        return (
+          <group key={z.id}>
+            <Line points={ring(site, z.polygon, 0.07)} color={COLORS.stated} lineWidth={2} dashed dashSize={0.6} gapSize={0.35} />
+            <Html portal={labelPortal} position={toWorld(c[0], c[1], terrainHeight(site, c[0], c[1]) + 0.5)} center zIndexRange={[10, 0]}>
+              <div className="lbl" style={{ transform: 'none', borderColor: COLORS.stated, color: COLORS.stated }}>{z.label}</div>
+            </Html>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+// ---------------- selection and clearing ----------------
+
+/** A ring on the ground around the selected thing, with its name. */
+export function SelectionMark({ site }: { site: SiteModel }) {
+  const selection = useStore((s) => s.selection);
+  const mark = useMemo(() => {
+    if (selection?.kind === 'element') {
+      const e = site.elements.find((x) => x.id === selection.id);
+      if (!e || e.footprint.length < 3) return null;
+      const c = e.center ?? centerOf(e.footprint);
+      return { poly: e.footprint, label: e.label, top: toWorld(c[0], c[1], terrainHeight(site, c[0], c[1]) + (e.ridge ?? e.height) + 0.8) };
+    }
+    if (selection?.kind === 'tree') {
+      const t = site.trees?.find((x) => x.id === selection.id);
+      if (!t) return null;
+      return { poly: circlePoly(t.at, Math.max(0.8, t.crown)), label: `${treeName(t)} · ${t.height.toFixed(0)} m`, top: toWorld(t.at[0], t.at[1], terrainHeight(site, t.at[0], t.at[1]) + t.height + 0.6) };
+    }
+    return null;
+  }, [site, selection]);
+  if (!mark) return null;
+  return (
+    <group>
+      <Line points={ring(site, mark.poly, 0.1)} color={COLORS.accent} lineWidth={3} />
+      <Html portal={labelPortal} position={mark.top} center zIndexRange={[12, 0]}>
+        <div className="lbl new" style={{ transform: 'none' }}>{mark.label}</div>
+      </Html>
+    </group>
+  );
+}
+
+/** Dashed outline where a variant clears something away. */
+export function Cleared({ site, variant, labels }: { site: SiteModel; variant: Variant; labels: boolean }) {
+  const items = useMemo(() => {
+    const out: { id: string; poly: Vec2[]; label: string }[] = [];
+    for (const id of variant.removed) {
+      const e: SiteElement | undefined = site.elements.find((x) => x.id === id);
+      if (e && e.footprint.length >= 3) { out.push({ id, poly: e.footprint, label: e.label }); continue; }
+      const t = site.trees?.find((x) => x.id === id);
+      if (t) out.push({ id, poly: circlePoly(t.at, Math.max(0.6, t.crown * 0.6), 18), label: treeName(t) });
+    }
+    return out;
+  }, [site, variant]);
+  return (
+    <group>
+      {items.map((it) => {
+        const c = centerOf(it.poly);
+        return (
+          <group key={it.id}>
+            <Line points={ring(site, it.poly, 0.09)} color={COLORS.warn} lineWidth={2} dashed dashSize={0.4} gapSize={0.25} />
             {labels && (
-              <Html portal={labelPortal} position={[mid.x, mid.y + 1.9, mid.z]} center zIndexRange={[10, 0]}>
-                <div className="lbl dim" style={{ transform: 'none' }}>
-                  {e.id === 'road' ? 'Road side' : e.id === 'forest' ? 'Forest side' : e.id === 'left' ? 'Left side' : 'Right side'} · {fmt(e.modelLength)}
-                  <span style={{ opacity: 0.65 }}> · {stated}{e.reconstructedLength ? ` · video ${e.reconstructedLength.toFixed(1)}` : ''}</span>
-                </div>
+              <Html portal={labelPortal} position={toWorld(c[0], c[1], terrainHeight(site, c[0], c[1]) + 0.8)} center zIndexRange={[10, 0]}>
+                <div className="lbl warn" style={{ transform: 'none' }}>Cleared · {it.label}</div>
               </Html>
             )}
           </group>
         );
       })}
-      {site.plot.edges.map((e) => {
-        const p = toWorld(e.a[0], e.a[1], terrainHeight(site, e.a[0], e.a[1]));
-        return (
-          <mesh key={'post' + e.id} position={[p.x, p.y + 0.9, p.z]} userData={{ pickable: true, snapCorner: e.id }}>
-            <boxGeometry args={[0.12, 1.8, 0.12]} />
-            <meshStandardMaterial color="#3b2c26" />
-          </mesh>
-        );
-      })}
-      <Entrance site={site} labels={labels} />
-      {site.plot.fences?.map((f, i) => {
-        const a = toWorld(f.a[0], f.a[1], terrainHeight(site, f.a[0], f.a[1]) + 0.08);
-        const b = toWorld(f.b[0], f.b[1], terrainHeight(site, f.b[0], f.b[1]) + 0.08);
-        const strong = f.method === 'fence points';
-        return <Line key={'fe' + i} points={[a, b]} color={strong ? COLORS.recon : COLORS.inferred} lineWidth={1.6} dashed dashSize={0.5} gapSize={0.35} />;
-      })}
-    </group>
-  );
-}
-
-function Entrance({ site, labels }: { site: SiteModel; labels: boolean }) {
-  const { u, width } = site.plot.entrance;
-  const a = toWorld(u - width / 2, 0, terrainHeight(site, u - width / 2, 0) + 0.06);
-  const b = toWorld(u + width / 2, 0, terrainHeight(site, u + width / 2, 0) + 0.06);
-  const c = a.clone().add(b).multiplyScalar(0.5);
-  return (
-    <group>
-      <Line points={[a, b]} color={site.plot.entrance.provenance === 'inferred' ? COLORS.inferred : '#f7f4ec'} lineWidth={6} />
-      {labels && (
-        <Html portal={labelPortal} position={[c.x, c.y + 2.6, c.z]} center zIndexRange={[10, 0]}>
-          <div className="lbl" style={{ transform: 'none' }}>Entrance · gate</div>
-        </Html>
-      )}
-    </group>
-  );
-}
-
-export function Context({ site, labels = true }: { site: SiteModel; labels?: boolean }) {
-  const { forestDepth, forestHeight, roadWidth } = site.context;
-  const fe = site.plot.edges.find((e) => e.id === 'forest')!;
-  const re = site.plot.edges.find((e) => e.id === 'road')!;
-  const forest = useMemo(() => {
-    const L = Math.hypot(fe.b[0] - fe.a[0], fe.b[1] - fe.a[1]) + 30;
-    const g = new THREE.BoxGeometry(L, forestHeight, forestDepth);
-    const ang = Math.atan2(fe.b[1] - fe.a[1], fe.b[0] - fe.a[0]);
-    const c: Vec2 = [(fe.a[0] + fe.b[0]) / 2, (fe.a[1] + fe.b[1]) / 2];
-    // shift outward (to the right of b->a means outside for CCW order)
-    const n: Vec2 = [Math.sin(ang), -Math.cos(ang)];
-    const cc: Vec2 = [c[0] + n[0] * (forestDepth / 2 + 2), c[1] + n[1] * (forestDepth / 2 + 2)];
-    g.translate(0, forestHeight / 2, 0);
-    g.applyMatrix4(new THREE.Matrix4().makeRotationY(ang).setPosition(cc[0], terrainHeight(site, cc[0], cc[1]), -cc[1]));
-    return { g, top: toWorld(cc[0], cc[1], forestHeight + 2) };
-  }, [site, fe, forestDepth, forestHeight]);
-  const road = useMemo(() => {
-    const L = Math.hypot(re.b[0] - re.a[0], re.b[1] - re.a[1]) + 60;
-    const g = new THREE.PlaneGeometry(L, roadWidth);
-    g.rotateX(-Math.PI / 2);
-    const c: Vec2 = [(re.a[0] + re.b[0]) / 2, (re.a[1] + re.b[1]) / 2 - roadWidth / 2 - 1.5];
-    g.translate(c[0], terrainHeight(site, c[0], 0) - 0.01, -c[1]);
-    return g;
-  }, [site, re, roadWidth]);
-  return (
-    <group>
-      <mesh geometry={forest.g} raycast={() => null}>
-        <meshStandardMaterial color="#47603f" transparent opacity={0.1} depthWrite={false} />
-      </mesh>
-      <Outline geom={forest.g} color="#47603f" dashed opacity={0.6} />
-      {labels && (
-        <Html portal={labelPortal} position={forest.top} center zIndexRange={[10, 0]}>
-          <div className="lbl inferred" style={{ transform: 'none' }}>Forest · stated by owner · ~{forestHeight} m pines seen in video, depth not surveyed</div>
-        </Html>
-      )}
-      <mesh geometry={road} raycast={() => null}>
-        <meshStandardMaterial color="#a7a49c" roughness={1} />
-      </mesh>
-    </group>
-  );
-}
-
-// ---------------- surveyed elements ----------------
-
-export function Existing({ site, variant, labels, uncertainty }: { site: SiteModel; variant: Variant | null; labels: boolean; uncertainty: boolean }) {
-  const selection = useStore((s) => s.selection);
-  const set = useStore((s) => s.set);
-  const removed = useMemo(() => new Set(variant?.removed ?? []), [variant]);
-  return (
-    <group>
-      {site.elements.map((e) => (
-        <ElementMesh key={e.id} site={site} e={e} removed={removed.has(e.id)} selected={selection?.kind === 'element' && selection.id === e.id}
-          labels={labels} uncertainty={uncertainty} onSelect={() => set({ selection: { kind: 'element', id: e.id } })} />
-      ))}
-    </group>
-  );
-}
-
-const BIG = new Set(['house', 'sauna', 'shed', 'greenhouse', 'deck', 'parking', 'beds', 'tilled', 'woodpile']);
-const LABELLED = new Set(['house', 'sauna', 'shed', 'greenhouse', 'woodpile', 'parking']);
-
-function ElementMesh({ site, e, removed, selected, labels, uncertainty, onSelect }: {
-  site: SiteModel; e: SiteElement; removed: boolean; selected: boolean; labels: boolean; uncertainty: boolean; onSelect: () => void;
-}) {
-  const parts = useMemo(() => elementParts(site, e), [site, e]);
-  const halo = useMemo(() => (e.uncertainty >= 0.3 && e.footprint.length >= 3 ? haloGeometry(site, e.footprint, e.uncertainty) : null), [site, e]);
-  const inferred = e.provenance === 'inferred';
-  const variant = removed ? 'ghost' : selected ? 'highlight' : inferred ? 'inferred' : 'solid';
-  const top = useMemo(() => {
-    const c = e.footprint.reduce((s, p) => [s[0] + p[0] / e.footprint.length, s[1] + p[1] / e.footprint.length], [0, 0]);
-    return toWorld(c[0], c[1], terrainHeight(site, c[0], c[1]) + (e.ridge ?? e.height) + 0.6);
-  }, [site, e]);
-  const edgeColor = removed ? COLORS.warn : selected ? COLORS.accent : inferred ? COLORS.inferred : COLORS.edge;
-  return (
-    <group>
-      {parts.map((p) => (
-        <group key={p.name}>
-          <mesh geometry={p.geom} material={mat(p.mat, variant)} castShadow={!removed && e.kind !== 'tree'} receiveShadow name={e.id}
-            userData={{ pickable: true, elementId: e.id }}
-            onClick={(ev: ThreeEvent<MouseEvent>) => { if (useStore.getState().tool !== 'none' || useStore.getState().dragging) return; ev.stopPropagation(); onSelect(); }}
-            onPointerOver={(ev) => { ev.stopPropagation(); document.body.style.cursor = 'pointer'; }}
-            onPointerOut={() => { document.body.style.cursor = ''; }} />
-          {(BIG.has(e.kind) || selected || removed) && <Outline geom={p.geom} color={edgeColor} dashed={inferred || removed} opacity={removed ? 0.9 : 0.75} />}
-        </group>
-      ))}
-      {uncertainty && halo && !removed && (
-        <mesh geometry={halo} raycast={() => null}>
-          <meshBasicMaterial color={inferred ? COLORS.inferred : COLORS.recon} transparent opacity={0.16} depthWrite={false} side={THREE.DoubleSide} />
-        </mesh>
-      )}
-      {((labels && LABELLED.has(e.kind)) || selected || removed) && (
-        <Html portal={labelPortal} position={top} center zIndexRange={[10, 0]}>
-          <div className={`lbl ${removed ? 'warn' : inferred ? 'inferred' : ''}`} style={{ transform: 'none' }}>
-            {removed ? 'Cleared · ' : ''}{selected ? e.label : e.label.split(' (')[0]}{e.uncertainty >= 0.3 && !removed ? <span className="muted"> ±{e.uncertainty.toFixed(1)} m</span> : null}
-          </div>
-        </Html>
-      )}
     </group>
   );
 }
@@ -289,11 +249,12 @@ export function PointCloud({ site }: { site: SiteModel }) {
   if (!geom) return null;
   return (
     <points geometry={geom} raycast={() => null} name="pointcloud">
-      <pointsMaterial size={0.09} vertexColors sizeAttenuation transparent opacity={0.9} depthWrite={false} />
+      <pointsMaterial size={0.1} vertexColors sizeAttenuation toneMapped={false} />
     </points>
   );
 }
 
+/** Where the phone was for each frame; click one to see the frame. */
 export function CameraPath({ site }: { site: SiteModel }) {
   const set = useStore((s) => s.set);
   const photo = useStore((s) => s.photo);
@@ -309,17 +270,16 @@ export function CameraPath({ site }: { site: SiteModel }) {
   const palette = ['#2c666b', '#7a5c9e', '#a8741f', '#3a5a96', '#9e4b5c'];
   return (
     <group>
-      {byClip.map(([clip, pts], i) => pts.length > 1 && <Line key={clip} points={pts} color={palette[i % palette.length]} lineWidth={1.5} transparent opacity={0.8} />)}
+      {byClip.map(([clip, pts], i) => pts.length > 1 && <Line key={clip} points={pts} color={palette[i % palette.length]} lineWidth={1.5} transparent opacity={0.85} />)}
       {glyphs.map((c) => {
-        const q = new THREE.Quaternion(...c.quat);
         const active = photo?.frameId === c.id;
         return (
-          <group key={c.id} position={c.pos} quaternion={q}>
-            <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -0.18]}
+          <group key={c.id} position={c.pos} quaternion={new THREE.Quaternion(...c.quat)}>
+            <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -0.18]} name={`camera:${c.id}`}
               onClick={(ev) => { ev.stopPropagation(); set({ photo: { frameId: c.id, aligned: false, opacity: 0.6 }, selection: { kind: 'camera', id: c.id } }); }}
               onPointerOver={() => (document.body.style.cursor = 'pointer')} onPointerOut={() => (document.body.style.cursor = '')}>
-              <coneGeometry args={[0.16, 0.36, 4, 1, true]} />
-              <meshBasicMaterial color={active ? COLORS.warn : '#2a2f2c'} wireframe />
+              <coneGeometry args={[0.18, 0.4, 4, 1, true]} />
+              <meshBasicMaterial color={active ? COLORS.warn : '#1d2320'} wireframe toneMapped={false} />
             </mesh>
           </group>
         );
@@ -328,6 +288,7 @@ export function CameraPath({ site }: { site: SiteModel }) {
   );
 }
 
+/** The video author's remarks, pinned where they were said. */
 export function Pins({ site }: { site: SiteModel }) {
   const set = useStore((s) => s.set);
   const selection = useStore((s) => s.selection);
@@ -343,9 +304,9 @@ export function Pins({ site }: { site: SiteModel }) {
           <group key={i}>
             {sel && <Line points={[pos, tip]} color={COLORS.stated} lineWidth={2} dashed dashSize={0.4} gapSize={0.25} />}
             <Html portal={labelPortal} position={[pos.x, pos.y + 0.6, pos.z]} center zIndexRange={[20, 10]}>
-              <div className={`pin-dot ${open ? 'open' : ''}`} title={p.quote}
+              <div className={`pin-dot ${open ? 'open' : ''}`} title={p.label}
                 onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover((h) => (h === i ? null : h))}
-                onClick={() => set({ selection: { kind: 'pin', id: String(i) }, photo: { frameId: p.frame, aligned: false, opacity: 0.6 } })}>
+                onClick={() => set({ selection: { kind: 'pin', id: String(i) } })}>
                 <span className="pin-glyph">“</span>{open && <span className="pin-text">{p.label}</span>}
               </div>
             </Html>
@@ -363,8 +324,8 @@ export function Proposed({ site, variant, interactive, labels }: { site: SiteMod
   return (
     <group>
       {variant.paths.map((pts, i) => (
-        <mesh key={'p' + i} geometry={ribbon(site, pts, i === 0 && variant.metrics.driveway !== null && variant.placed.some((p) => p.type === 'garage' || p.type === 'carport') ? 1.4 : 1.2, 0.035)} raycast={() => null} receiveShadow>
-          <meshStandardMaterial color="#e3dccd" roughness={1} />
+        <mesh key={'p' + i} geometry={ribbon(site, pts, i === 0 && variant.metrics.driveway !== null && variant.placed.some((p) => p.type === 'garage' || p.type === 'carport') ? 1.4 : 1.2, 0.06)} raycast={() => null}>
+          <meshStandardMaterial color="#d9d1c0" roughness={1} />
         </mesh>
       ))}
       {variant.placed.map((p) => (
@@ -393,9 +354,10 @@ function PlacedMesh({ site, p, variant, interactive, labels, selected }: { site:
               dragOrigin.current = g ? { u: g[0], v: g[1], pu: p.u, pv: p.v } : null;
               set({ selection: { kind: 'placed', id: p.itemId }, dragging: p.itemId });
             }}
+            onClick={(ev: ThreeEvent<MouseEvent>) => { if (interactive) ev.stopPropagation(); }}
             onPointerOver={(ev) => { if (interactive) { ev.stopPropagation(); document.body.style.cursor = 'grab'; } }}
             onPointerOut={() => { document.body.style.cursor = ''; }} />
-          <Outline geom={part.geom} color={failing ? COLORS.warn : COLORS.accent} opacity={0.95} />
+          {(selected || failing) && <Outline geom={part.geom} color={failing ? COLORS.warn : COLORS.accent} opacity={0.95} />}
         </group>
       ))}
       {labels && (

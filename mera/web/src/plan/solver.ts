@@ -227,7 +227,7 @@ export function reevaluate(site: PlanSite, v: Variant, rules: Rules): Variant {
 }
 
 /**
- * Does each building of the program fit in the owner's stated corner? Returns plain-language
+ * Does each building of the program fit in the corner the video's author points out? Returns plain-language
  * findings, e.g. "House: no — would be 3.1 m from the existing sauna (8 m needed)".
  */
 export function cornerReport(site: PlanSite, program: Program, rules: Rules, zone: Vec2[] | null): string[] {
@@ -265,8 +265,8 @@ export function cornerReport(site: PlanSite, program: Program, rules: Rules, zon
     }
     const name = it.label.split(' ·')[0];
     if (!best) out.push(`${name} (${it.w}×${it.d} m) is larger than the corner.`);
-    else if (best.score <= 1e-6) out.push(`${name} (${it.w}×${it.d} m) fits in the owner's corner.`);
-    else out.push(`${name} (${it.w}×${it.d} m) does not fit in the owner's corner: at best it is ${[...new Set(best.reasons)].join('; ')}.`);
+    else if (best.score <= 1e-6) out.push(`${name} (${it.w}×${it.d} m) fits in the corner named in the video.`);
+    else out.push(`${name} (${it.w}×${it.d} m) does not fit in the corner named in the video: at best it is ${[...new Set(best.reasons)].join('; ')}.`);
   }
   return out;
 }

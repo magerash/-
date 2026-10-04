@@ -1,8 +1,9 @@
-"""Run the whole pipeline for one project: ingest -> transcribe -> facts -> SfM -> site model.
+"""Run the whole pipeline for one project:
+ingest -> transcribe -> facts -> SfM -> site (reconstruction frame) -> layout -> texture -> model.
 
 Usage: python pipeline/run.py <project-id> [--from STAGE]
-Stages are idempotent; --from lets you redo the later ones (e.g. after editing annotations.json:
-`python pipeline/run.py plot --from site`).
+Stages are idempotent; --from lets you redo the later ones (e.g. after editing layout.json:
+`python pipeline/run.py plot --from layout`).
 """
 from __future__ import annotations
 
@@ -11,6 +12,9 @@ import time
 import traceback
 
 import build_site
+import layout
+import model
+import texture
 import facts
 import ingest
 import merge_models
@@ -18,7 +22,7 @@ import sfm
 import transcribe
 from common import Progress, inputs
 
-STAGES = ["ingest", "transcribe", "facts", "reconstruct", "site"]
+STAGES = ["ingest", "transcribe", "facts", "reconstruct", "site", "layout", "texture", "model"]
 
 
 def main() -> None:
@@ -45,7 +49,13 @@ def main() -> None:
                 sfm.main(pid)  # features, matching, incremental mapping (may yield several sub-models)
                 merge_models.main(pid, "models")  # bring sub-models into one frame
             elif st == "site":
-                build_site.main(pid)
+                build_site.main(pid)  # reconstruction frame -> site_recon.json
+            elif st == "layout":
+                layout.main(pid)  # verified layout mapped onto the stated plot -> site.json
+            elif st == "texture":
+                texture.main(pid, "all")  # photo textures from the frames
+            elif st == "model":
+                model.main(pid)  # textured glTF
         except SystemExit:
             raise
         except Exception as e:  # keep the UI informed instead of dying silently

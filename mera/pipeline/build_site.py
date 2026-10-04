@@ -613,7 +613,8 @@ def main(pid: str) -> None:
         "sourceClips": {cl["file"]: cl["id"] for cl in frames["clips"]},
         "transcriptGloss": ann.get("transcriptGloss", {}),
     }
-    write_json(pdir / "site.json", site)
+    # reconstruction frame; pipeline/layout.py maps it onto the stated plot and writes site.json
+    write_json(pdir / "site_recon.json", site)
     write_json(pdir / "work" / "site_diag.json", json.loads(json.dumps(diag, default=_jsonable)))
     prog.update("site", "done", f"fences {W_rec:.1f} × {D_rec:.1f} m reconstructed vs owner {sw:g} × {sd:g}; eye height "
                 f"{eye_m or 0:.2f} m; slope {slope:.1f}%; {len(elements)} elements", 1.0)

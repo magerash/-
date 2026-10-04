@@ -7,7 +7,7 @@ import { rehydrate } from './plan/variants';
 import SitePanel from './ui/SitePanel';
 import PlanPanel from './ui/PlanPanel';
 import { ComparePanel, CompareView } from './ui/Compare';
-import { FirstHint, Legend, PhotoOverlay, PhotoPanel, Toolbar } from './ui/Overlays';
+import { FirstHint, PhotoOverlay, PhotoPanel, Toolbar } from './ui/Overlays';
 import ExportDialog from './ui/ExportDialog';
 import { NewSurvey, Progress } from './ui/Onboarding';
 import { Icon, ICONS } from './ui/common';
@@ -84,7 +84,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand"><b>Mera</b><span className="proj">{site.name} · {site.plot.width.toFixed(1)} × {site.plot.depth.toFixed(1)} m</span></div>
+        <div className="brand"><b>Mera</b><span className="proj">{site.name} · {site.plot.width.toFixed(0)} × {site.plot.depth.toFixed(0)} m</span></div>
         <nav className="tabs" aria-label="Mode">
           {tab('site', 'Site')}
           {tab('plan', 'Plan', variants.length)}
@@ -103,7 +103,7 @@ export default function App() {
               </Suspense>
               <div ref={(el) => { if (el) labelPortal.current = el; }} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 1 }} />
               <PhotoOverlay site={site} />
-              <div className="hud tl"><Legend site={site} /><FirstHint /></div>
+              <FirstHint />
               <Toolbar />
             </>
           )}

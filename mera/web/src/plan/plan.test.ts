@@ -32,7 +32,7 @@ function fakeSite(): SiteModel {
       el('shed1', 'shed', rect(38, 44, 42, 48)),
       el('beds', 'beds', rect(5, 8, 20, 18)),
     ],
-    zones: [], context: { forestDepth: 30, forestHeight: 22, roadWidth: 6, provenance: 'stated', note: '' },
+    zones: [], context: { forestDepth: 30, forestHeight: 22, roadWidth: 6, provenance: 'narration', note: '' },
     scale: { method: '', metersPerUnit: 1, aspectFit: 1, aspectStated: 1, checks: [], expectedAccuracy: '' },
     reconstruction: { frames: 0, registered: 0, points: 0, reprojectionError: 0, clips: [], gravity: '' },
     cameras: [], pins: [], pointcloud: null, conflicts: [], sourceClips: {},

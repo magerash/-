@@ -1,12 +1,13 @@
-"""Re-import exported files in independent tools and check they come back at metric scale.
+"""Re-import exported files in independent tools and check they come back textured at metric scale.
 
-  python pipeline/verify_export.py <file.glb|file_obj.zip> [...] [--site data/projects/plot/site.json]
+  python pipeline/verify_export.py <file.glb|file_obj.zip|points.ply> [...] [--site data/projects/plot/site.json]
 
 For each file:
-  * trimesh (independent glTF/OBJ parser) - bounding box of the Boundary objects
-  * Blender (bpy, if installed) - real Blender import with default settings; object dimensions in
-    Blender units with the scene unit system set to metric, scale 1.0
-The boundary extents must equal the site model's plot size (plus the 5 cm fence thickness).
+  * trimesh (independent glTF/OBJ parser): extents of the Fences group and the textures it found
+  * Blender (bpy, if installed): real Blender import with default settings; fence extents in
+    Blender units with the scene unit system metric, scale 1.0, and the images it loaded
+The fence extents must equal the plot outline's bounding box from the site model (fences are
+zero-thickness photo panels on the boundary), and there must be textures.
 """
 from __future__ import annotations
 
@@ -19,15 +20,9 @@ from pathlib import Path
 
 def expected_from_site(site_path: Path):
     site = json.loads(site_path.read_text())
-    us = [p for e in site["plot"]["edges"] for p in (e["a"][0], e["b"][0])]
-    vs = [p for e in site["plot"]["edges"] for p in (e["a"][1], e["b"][1])]
-    t = site["terrain"]
-    # fence panels are 1.6 m tall boxes centred on each edge midpoint (they follow the slope per edge)
-    mids = [((e["a"][0] + e["b"][0]) / 2, (e["a"][1] + e["b"][1]) / 2) for e in site["plot"]["edges"]]
-    hs = [t["h0"] + t["gu"] * u + t["gv"] * v for u, v in mids]
-    fence = max(hs) - min(hs) + 1.6
-    # fence boxes are 5 cm thick and centred on the line
-    return max(us) - min(us) + 0.05, max(vs) - min(vs) + 0.05, fence, {e["id"]: e["modelLength"] for e in site["plot"]["edges"]}
+    poly = site["plot"].get("polygon") or [e["a"] for e in site["plot"]["edges"]]
+    us, vs = [p[0] for p in poly], [p[1] for p in poly]
+    return max(us) - min(us), max(vs) - min(vs), {e["id"]: e["modelLength"] for e in site["plot"]["edges"]}
 
 
 def unpack(path: Path, tmp: Path) -> Path:
@@ -38,20 +33,33 @@ def unpack(path: Path, tmp: Path) -> Path:
     return path
 
 
+def is_fence(name: str) -> bool:
+    return name.startswith("Fences/") or name.startswith("fence_") or name.startswith("entrance-gate")
+
+
 def check_obj_text(path: Path):
-    """Minimal independent OBJ reader: vertices grouped by `o` name (trimesh renames OBJ objects)."""
-    lo, hi, cur, objs = None, None, "", 0
+    """Minimal independent OBJ reader: fence vertices by `o` name, texture coordinates, MTL maps on disk."""
+    lo, hi, cur, objs, vts = None, None, "", 0, 0
     for line in path.read_text().splitlines():
         if line.startswith("o "):
             cur = line[2:]
             objs += 1
-        elif line.startswith("v ") and cur.startswith("Boundary"):
+        elif line.startswith("vt "):
+            vts += 1
+        elif line.startswith("v ") and is_fence(cur):
             x, y, z = map(float, line.split()[1:4])
             lo = [x, y, z] if lo is None else [min(lo[0], x), min(lo[1], y), min(lo[2], z)]
             hi = [x, y, z] if hi is None else [max(hi[0], x), max(hi[1], y), max(hi[2], z)]
+    mtl = next(path.parent.glob("*.mtl"), None)
+    maps = set()
+    if mtl:
+        for line in mtl.read_text().splitlines():
+            if line.startswith("map_Kd "):
+                maps.add(line.split(None, 1)[1].strip())
+    present = sum((path.parent / m).is_file() for m in maps)
     if lo is None:
         return None
-    return {"x": hi[0] - lo[0], "y_up": hi[1] - lo[1], "z": hi[2] - lo[2], "objects": objs}
+    return {"x": hi[0] - lo[0], "z": hi[2] - lo[2], "objects": objs, "uv": vts, "textures": present, "missing": len(maps) - present}
 
 
 def check_trimesh(path: Path):
@@ -59,31 +67,31 @@ def check_trimesh(path: Path):
 
     if path.suffix == ".obj":
         return check_obj_text(path)
-
     scene = trimesh.load(str(path), force="scene")
     lo, hi = None, None
-    names = []
-    for name, geom in scene.geometry.items():
-        names.append(name)
+    images = set()
     for node in scene.graph.nodes_geometry:
         T, gname = scene.graph[node]
-        n = str(node) + " " + str(gname)
-        if "Boundary" not in n:
+        g = scene.geometry[gname]
+        mat = getattr(g.visual, "material", None)
+        img = getattr(mat, "baseColorTexture", None) if mat is not None else None
+        if img is not None:
+            images.add(id(img))
+        parents = getattr(scene.graph.transforms, "parents", {})
+        chain, n = [str(node)], node
+        while n in parents:  # walk up to see whether this node sits in the Fences group
+            n = parents[n]
+            chain.append(str(n))
+        if not any(c == "Fences" or is_fence(c) for c in chain):
             continue
-        g = scene.geometry[gname].copy()
-        g.apply_transform(T)
-        b = g.bounds
+        gg = g.copy()
+        gg.apply_transform(T)
+        b = gg.bounds
         lo = b[0] if lo is None else [min(a, c) for a, c in zip(lo, b[0])]
         hi = b[1] if hi is None else [max(a, c) for a, c in zip(hi, b[1])]
-    if lo is None:  # OBJ through trimesh may flatten object names into geometry keys
-        for gname, g in scene.geometry.items():
-            if "Boundary" in gname:
-                b = g.bounds
-                lo = b[0] if lo is None else [min(a, c) for a, c in zip(lo, b[0])]
-                hi = b[1] if hi is None else [max(a, c) for a, c in zip(hi, b[1])]
     if lo is None:
         return None
-    return {"x": hi[0] - lo[0], "y_up": hi[1] - lo[1], "z": hi[2] - lo[2], "objects": len(names)}
+    return {"x": hi[0] - lo[0], "z": hi[2] - lo[2], "objects": len(scene.graph.nodes_geometry), "textures": len(images)}
 
 
 def check_blender(path: Path):
@@ -100,28 +108,28 @@ def check_blender(path: Path):
         bpy.ops.import_scene.gltf(filepath=str(path))
     else:
         bpy.ops.wm.obj_import(filepath=str(path))
-    xs, ys, zs = [], [], []
+    xs, ys = [], []
     count = 0
     buildings = {}
-    for ob in bpy.context.scene.objects:
-        if ob.type == "MESH" and ob.name.startswith("New_") and ob.name.endswith("_walls"):
-            bb = [ob.matrix_world @ mathutils.Vector(v) for v in ob.bound_box]
-            buildings[ob.name[:-6]] = (max(v.x for v in bb) - min(v.x for v in bb), max(v.y for v in bb) - min(v.y for v in bb))
     for ob in bpy.context.scene.objects:
         if ob.type != "MESH":
             continue
         count += 1
-        name = ob.name + " " + (ob.parent.name if ob.parent else "")
-        if "Boundary" not in name:
+        if ob.name.startswith("New_") and "_walls" in ob.name:
+            bb = [ob.matrix_world @ mathutils.Vector(v) for v in ob.bound_box]
+            buildings[ob.name.split("_walls")[0]] = (max(v.x for v in bb) - min(v.x for v in bb), max(v.y for v in bb) - min(v.y for v in bb))
+        names = [ob.name] + ([ob.parent.name] if ob.parent else [])
+        if not any(n == "Fences" or is_fence(n) for n in names):
             continue
         for v in ob.bound_box:
             w = ob.matrix_world @ mathutils.Vector(v)
             xs.append(w.x)
             ys.append(w.y)
-            zs.append(w.z)
+    images = [im for im in bpy.data.images if im.size[0] > 0]
+    textured = sum(1 for m in bpy.data.materials if m.node_tree and any(n.type == "TEX_IMAGE" and n.image for n in m.node_tree.nodes))
     if not xs:
         return {"objects": count, "boundary": None}
-    return {"x": max(xs) - min(xs), "y": max(ys) - min(ys), "z_up": max(zs) - min(zs), "objects": count,
+    return {"x": max(xs) - min(xs), "y": max(ys) - min(ys), "objects": count, "images": len(images), "textured": textured,
             "unit_system": bpy.context.scene.unit_settings.system, "buildings": buildings}
 
 
@@ -141,8 +149,8 @@ def main():
     args = sys.argv[1:]
     site = Path(args[args.index("--site") + 1]) if "--site" in args else Path(__file__).resolve().parent.parent / "data/projects/plot/site.json"
     files = [Path(a) for a in args if not a.startswith("--") and a != str(site)]
-    W, D, F, edges = expected_from_site(site)
-    print(f"expected boundary extents: {W:.3f} x {D:.3f} m incl. 5 cm fence thickness, fence span {F:.2f} m (edges {edges})")
+    W, D, edges = expected_from_site(site)
+    print(f"expected fence extents: {W:.3f} x {D:.3f} m (plot outline; edges {edges})")
     ok_all = True
     for f in files:
         if f.suffix == ".ply":
@@ -155,18 +163,22 @@ def main():
             b = check_blender(p)
             print(f"\n{f.name}")
             if t:
-                okt = abs(t["x"] - W) < 0.01 and abs(t["z"] - D) < 0.01 and abs(t["y_up"] - F) < 0.01
+                okt = abs(t["x"] - W) < 0.01 and abs(t["z"] - D) < 0.01 and t["textures"] > 0 and not t.get("missing")
                 ok_all &= okt
-                print(f"  {'obj-text' if p.suffix == '.obj' else 'trimesh '}: boundary {t['x']:.3f} x {t['z']:.3f} m (fence height {t['y_up']:.2f} m)  {'OK' if okt else 'MISMATCH'}")
+                extra = f", {t['uv']:,} texture coordinates, {t['missing']} missing files" if "uv" in t else ""
+                print(f"  {'obj-text' if p.suffix == '.obj' else 'trimesh '}: fences {t['x']:.3f} x {t['z']:.3f} m, {t['textures']} textures{extra}  {'OK' if okt else 'MISMATCH'}")
+            else:
+                ok_all = False
+                print("  trimesh : fences not found")
             if b:
                 if b.get("boundary", 1) is None:
-                    print(f"  blender : {b['objects']} meshes, boundary objects not found by name")
+                    print(f"  blender : {b['objects']} meshes, fence objects not found by name")
                     ok_all = False
                 else:
-                    okb = abs(b["x"] - W) < 0.01 and abs(b["y"] - D) < 0.01 and abs(b["z_up"] - F) < 0.01
+                    okb = abs(b["x"] - W) < 0.01 and abs(b["y"] - D) < 0.01 and b["images"] > 0
                     ok_all &= okb
-                    print(f"  blender : boundary {b['x']:.3f} x {b['y']:.3f} m, fence {b['z_up']:.2f} m tall (Z-up), "
-                          f"{b['objects']} meshes, units {b['unit_system']}  {'OK' if okb else 'MISMATCH'}")
+                    print(f"  blender : fences {b['x']:.3f} x {b['y']:.3f} m (Z-up), {b['objects']} meshes, {b['images']} images on "
+                          f"{b['textured']} textured materials, units {b['unit_system']}  {'OK' if okb else 'MISMATCH'}")
                     for name, (bx, by) in b.get("buildings", {}).items():
                         print(f"            {name}: walls {bx:.2f} x {by:.2f} m in Blender")
             elif b is None:

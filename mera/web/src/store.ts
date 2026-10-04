@@ -14,19 +14,20 @@ export interface Measurement {
   snappedB?: string;
 }
 
+/** Detail layers: all off on first open, so the model is all you see. */
 export interface Layers {
-  points: boolean;
-  cameras: boolean;
-  pins: boolean;
-  existing: boolean;
-  uncertainty: boolean;
-  labels: boolean;
-  context: boolean;
-  grid: boolean;
+  labels: boolean; // names of structures
+  dimensions: boolean; // boundary lengths and plot outline
+  survey: boolean; // how each thing was located, accuracy, survey notes
+  accuracy: boolean; // uncertainty halos, coloured by how each thing is known
+  points: boolean; // reconstruction points
+  photos: boolean; // where the frames were shot
+  narration: boolean; // the author's remarks where they were said
+  grid: boolean; // 1 / 5 / 10 m grid
 }
 
 export interface Selection {
-  kind: 'element' | 'camera' | 'pin' | 'placed' | 'edge';
+  kind: 'element' | 'tree' | 'camera' | 'pin' | 'placed' | 'edge';
   id: string;
 }
 
@@ -50,7 +51,6 @@ interface State {
   compare: string[];
   rules: Rules;
   brief: string;
-  sun: { on: boolean; northDeg: number | null; lat: number; month: number; hour: number };
   exportOpen: boolean;
   dragging: string | null;
   cameraRequest: { kind: 'top' | 'home' | 'focus'; at: number; target?: [number, number, number]; radius?: number } | null;
@@ -72,7 +72,7 @@ export const useStore = create<State>((set) => ({
   mode: 'site',
   view: 'orbit',
   tool: 'none',
-  layers: { points: true, cameras: false, pins: true, existing: true, uncertainty: true, labels: true, context: true, grid: true },
+  layers: { labels: false, dimensions: false, survey: false, accuracy: false, points: false, photos: false, narration: false, grid: false },
   selection: null,
   photo: null,
   measurements: [],
@@ -83,7 +83,6 @@ export const useStore = create<State>((set) => ({
   compare: [],
   rules: DEFAULT_RULES,
   brief: '',
-  sun: { on: false, northDeg: null, lat: 56.8, month: 6, hour: 14 },
   exportOpen: false,
   dragging: null,
   cameraRequest: null,

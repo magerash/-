@@ -190,7 +190,7 @@ export function describeZone(z: Zone | undefined): string {
     case 'center': return 'in the middle';
     case 'left': return 'left side';
     case 'right': return 'right side';
-    case 'corner': return "in the owner's corner";
+    case 'corner': return 'in the corner named in the video';
     default: return 'anywhere';
   }
 }

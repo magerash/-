@@ -5,6 +5,7 @@ opencv-python-headless>=4.10
 numpy
 scipy
 trimesh
+pillow  # lets trimesh decode exported textures (verify_export.py)
 fastapi
 uvicorn
 python-multipart

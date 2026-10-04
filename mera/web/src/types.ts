@@ -4,8 +4,13 @@
 
 export type Vec2 = [number, number];
 
-/** How a piece of geometry is known. Ordered from most to least trustworthy. */
-export type Provenance = 'stated' | 'reconstructed' | 'inferred';
+/**
+ * How a piece of geometry is known, most to least certain:
+ * reconstructed = fitted to 3D points from the video; located = measured from the frames
+ * (ground hits, triangulation); inferred = approximate, from frames and narration;
+ * given = supplied with the job (plot dimensions); narration = said in the video by its author.
+ */
+export type Provenance = 'reconstructed' | 'located' | 'inferred' | 'given' | 'narration';
 
 export interface Evidence {
   frames?: string[]; // keyframe ids that show it
@@ -18,12 +23,14 @@ export interface BoundaryEdge {
   id: 'road' | 'forest' | 'left' | 'right';
   a: Vec2;
   b: Vec2;
-  statedLength: [number, number] | null; // owner range, m
-  modelLength: number; // boundary length used by the model (owner's rectangle), m
-  reconstructedLength?: number; // fence-to-fence length in the reconstruction, m
+  statedLength: [number, number] | null; // supplied range, m
+  modelLength: number; // length of this side in the model, m
+  reconstructedLength?: number; // fence length measured in the reconstruction, m
   rawResidual: number; // positional uncertainty of this side, m
-  method?: string; // 'fence points' | 'walking path + 0.7 m'
-  points?: number;
+  method?: string;
+  style?: string; // fence type
+  how?: string; // how the fence line was measured
+  switchAt?: number;
 }
 
 export interface FenceLine {
@@ -56,11 +63,19 @@ export interface SiteElement {
   id: string;
   kind: ElementKind;
   label: string;
+  detail?: string; // one line for the owner
+  center?: Vec2;
+  size?: [number, number];
+  angle?: number;
+  how?: string; // how its position was checked against the frames (detail layer)
+  outside?: boolean; // stands (mostly) outside the boundary
+  parent?: string;
   /** footprint polygon in site coords (closed implicitly) */
   footprint: Vec2[];
   height: number; // eave / top height above local ground, m
   ridge?: number; // ridge height for pitched roofs
   roof?: 'gable' | 'shed' | 'flat' | 'arch' | 'none';
+  round?: boolean;
   ridgeAxis?: 'u' | 'v';
   storeys?: number;
   provenance: Provenance;
@@ -101,21 +116,36 @@ export interface ScaleCheck {
   note?: string;
 }
 
+export interface Tree {
+  id: string;
+  species: 'birch' | 'conifer' | 'fruit' | 'deciduous';
+  at: Vec2;
+  height: number;
+  crown: number;
+  how: string;
+  provenance: Provenance;
+}
+
 export interface SiteModel {
   id: string;
   name: string;
   units: 'm';
   createdAt: string;
   plot: {
-    width: number; // along the road
+    width: number; // along the road (longest side)
     depth: number; // road -> forest
     statedWidth: [number, number];
     statedDepth: [number, number];
+    polygon?: Vec2[];
     edges: BoundaryEdge[];
-    fences?: FenceLine[]; // reconstructed fence evidence (dashed in the viewer)
+    fences?: FenceLine[];
     reconstructedSize?: [number, number];
     entrance: { u: number; width: number; provenance: Provenance; evidence: Evidence };
+    note?: string;
   };
+  trees?: Tree[];
+  model?: { url: string };
+  warp?: { recQuad: Vec2[]; modelQuad: Vec2[]; maxShift: number; reconstructedWidth: number[]; reconstructedDepth: number[] };
   terrain: Terrain;
   elements: SiteElement[];
   zones: { id: string; label: string; polygon: Vec2[]; provenance: Provenance; note: string; evidence: Evidence }[];

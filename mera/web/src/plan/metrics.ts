@@ -14,6 +14,18 @@ export interface PlanSite {
   uncertainty: number;
 }
 
+/** Trees as plan obstacles: a building over a trunk clears that tree (the area under the inner crown). */
+export function treeElements(site: SiteModel): SiteElement[] {
+  return (site.trees ?? []).map((t) => {
+    const r = Math.max(0.5, t.crown * 0.45);
+    const name = { birch: 'Birch', conifer: 'Pine', fruit: 'Apple tree', deciduous: 'Tree' }[t.species];
+    return {
+      id: t.id, kind: 'tree', label: name, footprint: rectPoly(t.at[0], t.at[1], 2 * r, 2 * r), center: t.at,
+      height: t.height, provenance: t.provenance, uncertainty: 0.5, evidence: {}, removable: true,
+    } as SiteElement;
+  });
+}
+
 export function planSite(site: SiteModel): PlanSite {
   const byId = Object.fromEntries(site.plot.edges.map((e) => [e.id, e]));
   const order = ['road', 'right', 'forest', 'left'] as const;
@@ -23,7 +35,7 @@ export function planSite(site: SiteModel): PlanSite {
   return {
     edges, poly, area: area(poly),
     entrance: [site.plot.entrance.u, 0.2],
-    existing: site.elements,
+    existing: [...site.elements, ...treeElements(site)],
     corner: corner ? centroid(corner.polygon) : null,
     uncertainty: Math.max(0.3, ...site.elements.filter((e) => e.kind === 'house').map((e) => e.uncertainty)),
   };

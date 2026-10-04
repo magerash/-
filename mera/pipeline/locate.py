@@ -41,12 +41,19 @@ def ray(site, cam, px, py, w=854, h=480):
     return np.array(cam["pos"]), d / np.linalg.norm(d)
 
 
-def locate(site, P, cam, px, py, radius=0.12):
+PHONE_HEIGHT = 1.46
+
+
+def locate(site, P, cam, px, py, radius=0.12, local=False):
+    """local=True puts the ground 1.46 m under this camera (with the site's gradient) instead of
+    on the global terrain plane; use it where the reconstruction is bent (merged sub-models)."""
     o, d = ray(site, cam, px, py)
     t = site["terrain"]
     # ground plane y = h0 + gu*x + gv*(-z): solve o + s d on it
     n = np.array([-t["gu"], 1.0, t["gv"]])
     c0 = np.array([0.0, t["h0"], 0.0])
+    if local:
+        c0 = np.array([o[0], o[1] - PHONE_HEIGHT, o[2]])
     denom = d @ n
     ground = None
     if abs(denom) > 1e-6:
@@ -69,11 +76,14 @@ def locate(site, P, cam, px, py, radius=0.12):
 
 
 if __name__ == "__main__":
-    pid, fid = sys.argv[1], sys.argv[2]
+    args = sys.argv[1:]
+    local = "--local" in args
+    args = [a for a in args if a != "--local"]
+    pid, fid = args[0], args[1]
     site, P = load(pid)
     cam = next(c for c in site["cameras"] if c["id"] == fid)
-    print(f"{fid} at u={cam['pos'][0]:.1f} v={-cam['pos'][2]:.1f}")
-    for arg in sys.argv[3:]:
+    print(f"{fid} at u={cam['pos'][0]:.1f} v={-cam['pos'][2]:.1f}{' (approximate pose)' if cam.get('approx') else ''}")
+    for arg in args[2:]:
         x, y = map(float, arg.split(","))
-        g, hit = locate(site, P, cam, x, y)
+        g, hit = locate(site, P, cam, x, y, local=local)
         print(f"  px({x:.0f},{y:.0f}) ground(u,v,dist)={g}  first-point(u,v,h,dist,n)={hit}")

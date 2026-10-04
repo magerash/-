@@ -3,7 +3,7 @@ const [url, out] = process.argv.slice(2);
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
-await page.goto(url); await page.waitForTimeout(4000);
+await page.goto(url); await page.waitForTimeout(9000);
 await page.screenshot({ path: out });
 const sw = await page.evaluate(() => document.documentElement.scrollWidth);
 console.log('scrollWidth', sw, errs);

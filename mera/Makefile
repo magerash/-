@@ -14,6 +14,9 @@ pipeline:         ## run the full reconstruction for data/projects/$(PID)/inputs
 site:             ## rebuild only the site model (after editing annotations.json)
 	cd pipeline && $(PY) run.py $(PID) --from site
 
+model:            ## rebuild layout, textures and the textured model (after editing layout.json)
+	cd pipeline && $(PY) run.py $(PID) --from layout
+
 build:            ## build the web app into web/dist
 	cd web && npm run build
 
@@ -33,4 +36,4 @@ test:             ## unit tests + browser journeys (server must be running)
 verify:           ## re-import exported files in trimesh and Blender: make verify FILES="a.glb b_obj.zip"
 	$(PY) pipeline/verify_export.py $(FILES) --site data/projects/$(PID)/site.json
 
-.PHONY: setup pipeline site build run dev share test verify
+.PHONY: setup pipeline site model build run dev share test verify

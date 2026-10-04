@@ -4,8 +4,8 @@
 
 Expects the static web build in web/dist-static (`make share` builds it). Writes
 data/projects/<id>/share/: index.html (page content, no document skeleton, so a host may wrap it),
-the app's assets, and data/ with the site model, transcript, point cloud and a subset of the
-photos. The output holds footage-derived data, so it stays in the git-ignored project folder.
+the app's assets, and data/ with the site data, the textured model and its images, transcript,
+point cloud and a subset of the photos. The output holds footage-derived data, so it stays in the git-ignored project folder.
 """
 import argparse
 import base64
@@ -53,7 +53,7 @@ def page_from_build(html: str, title: str) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("pid")
-    ap.add_argument("--photos", type=int, default=200)
+    ap.add_argument("--photos", type=int, default=110)
     ap.add_argument("--quality", type=int, default=72)
     a = ap.parse_args()
 
@@ -76,6 +76,14 @@ def main() -> None:
         site["pointcloud"]["url"] = site["pointcloud"]["url"] + ".b64.txt"
         (out / "data" / site["pointcloud"]["url"]).write_text(base64.b64encode(src.read_bytes()).decode())
     (out / "data" / "site.json").write_text(json.dumps(site, ensure_ascii=False, separators=(",", ":")))
+    # the textured model and every image it references
+    model = proj / site["model"]["url"]
+    dst = out / "data" / site["model"]["url"]
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(model, dst)
+    for im in json.loads(model.read_text()).get("images", []):
+        (dst.parent / im["uri"]).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(model.parent / im["uri"], dst.parent / im["uri"])
 
     fr = json.loads((proj / "frames.json").read_text())
     fr["frames"] = [f for f in fr["frames"] if f["id"] in keep]
