@@ -19,6 +19,11 @@ export default function App() {
   const { site, mode, set, variants, compare, exportOpen, loadError } = useStore();
   const variant = useStore(activeVariantOf);
   const pid = useStore((s) => s.projectId);
+  const selection = useStore((s) => s.selection);
+  const photoId = useStore((s) => s.photo?.frameId);
+  const panelRef = useRef<HTMLElement>(null);
+  // details for a newly selected thing appear at the top of the panel: bring them into view
+  useEffect(() => { if (selection || photoId) panelRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }, [selection, photoId]);
 
   const open = useCallback(async (id: string) => {
     set({ projectId: id, site: null, loadError: null });
@@ -94,7 +99,7 @@ export default function App() {
             </>
           )}
         </div>
-        <aside className="panel" aria-label="Details">
+        <aside className="panel" aria-label="Details" ref={panelRef}>
           {panelOpen && (
             <>
               {mode !== 'compare' && <PhotoPanel site={site} />}

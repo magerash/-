@@ -102,6 +102,11 @@ def check_blender(path: Path):
         bpy.ops.wm.obj_import(filepath=str(path))
     xs, ys, zs = [], [], []
     count = 0
+    buildings = {}
+    for ob in bpy.context.scene.objects:
+        if ob.type == "MESH" and ob.name.startswith("New_") and ob.name.endswith("_walls"):
+            bb = [ob.matrix_world @ mathutils.Vector(v) for v in ob.bound_box]
+            buildings[ob.name[:-6]] = (max(v.x for v in bb) - min(v.x for v in bb), max(v.y for v in bb) - min(v.y for v in bb))
     for ob in bpy.context.scene.objects:
         if ob.type != "MESH":
             continue
@@ -117,7 +122,19 @@ def check_blender(path: Path):
     if not xs:
         return {"objects": count, "boundary": None}
     return {"x": max(xs) - min(xs), "y": max(ys) - min(ys), "z_up": max(zs) - min(zs), "objects": count,
-            "unit_system": bpy.context.scene.unit_settings.system}
+            "unit_system": bpy.context.scene.unit_settings.system, "buildings": buildings}
+
+
+def check_ply(path: Path):
+    try:
+        import bpy
+    except Exception:
+        return None
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.wm.ply_import(filepath=str(path))
+    ob = next(o for o in bpy.context.scene.objects if o.type == "MESH")
+    vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
+    return len(vs), max(v.x for v in vs) - min(v.x for v in vs), max(v.y for v in vs) - min(v.y for v in vs)
 
 
 def main():
@@ -128,6 +145,10 @@ def main():
     print(f"expected boundary extents: {W:.3f} x {D:.3f} m incl. 5 cm fence thickness, fence span {F:.2f} m (edges {edges})")
     ok_all = True
     for f in files:
+        if f.suffix == ".ply":
+            r = check_ply(f)
+            print(f"\n{f.name}\n  blender : {r[0]:,} points, extent {r[1]:.1f} x {r[2]:.1f} m (plot plus surroundings)" if r else "  blender: skipped")
+            continue
         with tempfile.TemporaryDirectory() as td:
             p = unpack(f, Path(td))
             t = check_trimesh(p)
@@ -146,6 +167,8 @@ def main():
                     ok_all &= okb
                     print(f"  blender : boundary {b['x']:.3f} x {b['y']:.3f} m, fence {b['z_up']:.2f} m tall (Z-up), "
                           f"{b['objects']} meshes, units {b['unit_system']}  {'OK' if okb else 'MISMATCH'}")
+                    for name, (bx, by) in b.get("buildings", {}).items():
+                        print(f"            {name}: walls {bx:.2f} x {by:.2f} m in Blender")
             elif b is None:
                 print("  blender : bpy not installed, skipped")
     print("\nALL OK" if ok_all else "\nSOME CHECKS FAILED")

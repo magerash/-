@@ -84,7 +84,7 @@ function SunControls({ onClose }: { onClose: () => void }) {
           <p className="small" style={{ margin: '0 0 8px', color: 'var(--ink-2)' }}>The footage doesn't show which way is north (overcast day, no shadows), so shadows stay off until you set it.</p>
           <div className="small">Where is north, looking from the gate into the plot?</div>
           <div className="examples">
-            {[['ahead (toward forest)', 0], ['to the right', 270], ['behind (toward road)', 180], ['to the left', 90]].map(([l, d]) => (
+            {[['ahead (toward forest)', 0], ['to the right', 90], ['behind (toward road)', 180], ['to the left', 270]].map(([l, d]) => (
               <button key={l as string} onClick={() => set({ sun: { ...sun, northDeg: d as number, on: true } })}>{l}</button>
             ))}
           </div>

@@ -25,7 +25,7 @@ Requirements: Python 3.11, Node 20+, ffmpeg, ~2 GB disk for models.
 make setup                      # pip + npm deps, downloads speech models and the COLMAP vocab tree
 cp ~/videos/*.mp4 data/projects/plot/inputs/          # drop video(s) and any voice recordings
 echo '{"name":"My plot","plot":{"width":[48,49],"depth":[50,50]}}' > data/projects/plot/project.json
-make pipeline                   # ~30-45 min on a 4-core CPU for ~9 min of 480p video
+make pipeline                   # ~60 min on a 4-core CPU for ~9 min of 480p video
 make run                        # http://127.0.0.1:8765
 ```
 
@@ -63,7 +63,8 @@ public and the footage shows people, cars and a private property.
 | Keyframes | 8 fps candidates. Laplacian sharpness, exposure, LK optical-flow parallax; the sharpest frame wins once the camera has moved enough | `pipeline/ingest.py` |
 | Transcript | Silero VAD → GigaAM v2 (Russian) and Whisper large-v3-turbo; disagreements kept | `pipeline/transcribe.py` |
 | Facts | Bilingual keyword grammar for entrance, forest, slope, sauna, sheds … with timestamps | `pipeline/facts.py` |
-| SfM | pycolmap: one RADIAL camera per clip with an ultra-wide prior (owner: "0.6x"), sequential + vocabulary-tree matching, global mapper | `pipeline/sfm.py` |
+| SfM | pycolmap: one RADIAL camera per clip with an ultra-wide prior (owner: "0.6x"), sequential + vocabulary-tree matching, incremental mapping on every 2nd keyframe with loosened thresholds for stabilised phone video | `pipeline/sfm.py` |
+| Merge | Sub-models joined by Sim3 from 3D–3D correspondences (feature matches across models); weak links refused | `pipeline/merge_models.py` |
 | Site model | Gravity from camera up refined by vertical wall planes; fence lines from near-ground structure outside the walking path; road/forest side from where the camera pointed when the owner said "entrance" / "forest"; one similarity scale fitted to the owner's dimensions; terrain plane from the camera track; buildings refitted to wall points | `pipeline/build_site.py` |
 | Planner | Brief parser → program; simulated annealing with hard setbacks; diverse selection; A* paths; rule checks marked *marginal* when they pass by less than the survey error | `web/src/plan/*` |
 | Viewer | React + three.js (react-three-fiber), matte massing, provenance styling, uncertainty halos | `web/src/scene/*` |
@@ -71,15 +72,20 @@ public and the footage shows people, cars and a private property.
 | Verify | trimesh + real Blender (bpy) re-import, checks the boundary to ±1 cm | `pipeline/verify_export.py` |
 
 Analyst annotations: `data/projects/<id>/annotations.json` holds the element list (kind, label,
-approximate footprint, evidence frames, transcript lines). Positions were read off the
-reconstruction and the frames. The pipeline refits buildings to the wall points and downgrades
-anything without enough 3D support to *inferred*. Rerun with `make site`.
+approximate footprint, evidence frames, transcript lines), English glosses of the narration and
+site-specific open questions. Positions were read off the reconstruction and found with
+`pipeline/locate.py` (pick a pixel in a registered frame, then cast its ray into the point cloud).
+The pipeline refits buildings to the wall points and keeps anything without 3D support as
+*inferred*. Rerun with `make site`. Without annotations, tall point clusters become unlabelled
+obstacles ("tall structure or trees").
 
 ## Tests
 
 ```bash
-cd web && npx vitest run        # brief parser + solver unit tests
-make run & cd web && npx playwright test   # browser journeys on the real survey
+cd web && npx vitest run                    # parser, solver, geometry + example briefs on the real plot
+python pipeline/test_build_site.py          # synthetic checks of the site-builder geometry
+make run & (cd web && npx playwright test)  # browser journeys on the real survey
+python pipeline/verify_export.py file.glb file_obj.zip points.ply --site data/projects/plot/site.json
 ```
 
 The journeys cover:

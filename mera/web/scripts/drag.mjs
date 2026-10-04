@@ -1,0 +1,28 @@
+// Drag the first proposed building 6 m toward the road and rotate it; report checks before/after.
+import { chromium } from '@playwright/test';
+const [url, out] = process.argv.slice(2);
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+await page.goto(url); await page.waitForTimeout(3000);
+await page.click('nav >> text=Plan');
+await page.fill('[aria-label="Building brief"]', 'a two-storey house near the forest, a garage and a sauna by the road');
+await page.click('text=Generate variants');
+await page.waitForSelector('[data-testid=variant-card]', { timeout: 60000 });
+await page.click('.toolbar >> text=Plan'); await page.waitForTimeout(1500);
+const st = () => page.evaluate(() => { const s = window.__meraStore.getState(); const v = s.variants.find((x) => x.id === s.activeVariant); return { name: v.name, edited: !!v.edited, house: v.placed[0], fails: v.checks.filter((c) => !c.ok && c.severity === 'rule').map((c) => c.label) }; });
+const before = await st();
+const t = await page.evaluate(() => window.__meraStore.getState().site.terrain);
+const h = (u, v) => t.h0 + t.gu * u + t.gv * v;
+const p0 = await page.evaluate(([u, y, v]) => window.__mera.project(u, y, -v), [before.house.u, h(before.house.u, before.house.v) + before.house.ridge, before.house.v]);
+const p1 = await page.evaluate(([u, y, v]) => window.__mera.project(u, y, -v), [before.house.u, h(before.house.u, before.house.v - 6), before.house.v - 6]);
+await page.mouse.move(p0[0], p0[1]); await page.mouse.down();
+await page.mouse.move((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2, { steps: 5 });
+await page.mouse.move(p1[0], p1[1], { steps: 5 }); await page.mouse.up();
+await page.waitForTimeout(800);
+const mid = await st();
+await page.keyboard.press('r'); await page.waitForTimeout(800);
+const after = await st();
+await page.screenshot({ path: out });
+console.log(JSON.stringify({ before: [before.house.u, before.house.v, before.house.rot], dragged: [mid.house.u, mid.house.v, mid.edited], rotated: [after.house.w, after.house.d, after.house.rot], failsAfter: after.fails, errs }, null, 1));
+await browser.close();

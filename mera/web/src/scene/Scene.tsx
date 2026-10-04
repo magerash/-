@@ -5,7 +5,7 @@ import type { SiteModel, Variant } from '../types';
 import { useStore } from '../store';
 import { terrainHeight, toWorld } from './geometry';
 import { Boundary, CameraPath, Context, Existing, Grid, Ground, PointCloud, Pins, Proposed } from './parts';
-import { CameraRig, DragLayer, MeasureLayer, Zones } from './interaction';
+import { CameraRig, DragLayer, MeasureLayer, Zones, dragEnded } from './interaction';
 
 /** Solar elevation/azimuth (azimuth from north, clockwise) for a latitude, month and local solar hour. */
 export function sunPosition(lat: number, month: number, hour: number) {
@@ -79,7 +79,7 @@ export default function Scene({ site, variant }: { site: SiteModel; variant: Var
   const set = useStore((s) => s.set);
   return (
     <Canvas shadows dpr={[1, 2]} camera={{ fov: 45, near: 0.15, far: 2500, position: [0, 60, 80] }} gl={{ antialias: true, preserveDrawingBuffer: true }}
-      onPointerMissed={() => { if (useStore.getState().tool === 'none') set({ selection: null }); }}>
+      onPointerMissed={() => { if (useStore.getState().tool === 'none' && performance.now() - dragEnded.at > 400) set({ selection: null }); }}>
       <Suspense fallback={null}>
         <SceneContents site={site} variant={variant} />
         <CameraRig site={site} />

@@ -132,12 +132,27 @@ export async function toOBJZip(scene: THREE.Scene, base: string, readme: string)
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
 
-/** Point cloud as binary PLY (meters, same frame). */
+/**
+ * Point cloud as binary PLY in meters, Z-up (x = across the plot, y = road -> forest, z = up),
+ * the convention Blender, CloudCompare and MeshLab assume for PLY. It lands exactly on top of
+ * the glTF / OBJ exports after their Y-up -> Z-up import conversion.
+ */
 export async function pointCloudPLY(url: string): Promise<Blob> {
-  const buf = await (await fetch(url)).arrayBuffer();
-  const n = buf.byteLength / 15;
-  const header = `ply\nformat binary_little_endian 1.0\ncomment Mera reconstruction, units meters, Y-up\nelement vertex ${n}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n`;
-  return new Blob([header, buf]);
+  const src = new DataView(await (await fetch(url)).arrayBuffer());
+  const n = Math.floor(src.byteLength / 15);
+  const out = new DataView(new ArrayBuffer(n * 15));
+  for (let i = 0; i < n; i++) {
+    const o = i * 15;
+    const x = src.getFloat32(o, true), y = src.getFloat32(o + 4, true), z = src.getFloat32(o + 8, true);
+    out.setFloat32(o, x, true);
+    out.setFloat32(o + 4, -z, true);
+    out.setFloat32(o + 8, y, true);
+    out.setUint8(o + 12, src.getUint8(o + 12));
+    out.setUint8(o + 13, src.getUint8(o + 13));
+    out.setUint8(o + 14, src.getUint8(o + 14));
+  }
+  const header = `ply\nformat binary_little_endian 1.0\ncomment Mera reconstruction, units meters, Z-up (x across plot, y road->forest)\nelement vertex ${n}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n`;
+  return new Blob([header, out.buffer]);
 }
 
 export function readmeFor(site: SiteModel, variant: Variant | null): string {

@@ -584,6 +584,14 @@ def main(pid: str) -> None:
     rep = rep_err
 
     conflicts = build_conflicts(diag, terrain, W_rec, D_rec, stated_w, stated_d, facts, transcript, fences, dedup) + ann.get("conflicts", [])
+    # did the walk cover the plot? a partial walk cannot anchor the owner's dimensions
+    cu = float(np.ptp(np.percentile(Cs[:, 0], [2, 98]))) / W
+    cv = float(np.ptp(np.percentile(Cs[:, 1], [2, 98]))) / D
+    if min(cu, cv) < 0.6 or any(not c["ok"] for c in checks):
+        conflicts.insert(0, {"topic": "Footage coverage",
+                             "detail": f"The walking path spans {cu * 100:.0f}% of the width and {cv * 100:.0f}% of the depth"
+                                       + ("; some scale checks failed" if any(not c["ok"] for c in checks) else "") + ".",
+                             "resolution": "Scale and boundary are unreliable for this survey. Walk the whole boundary (and film the fences) and run it again."})
     site = {
         "id": pid, "name": meta.get("name", "Plot"), "units": "m", "createdAt": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
         "plot": {"width": round(W, 3), "depth": round(D, 3), "statedWidth": stated_w, "statedDepth": stated_d, "edges": edges,
@@ -764,20 +772,33 @@ def auto_detect(Ps, terrain_site, W, D, min_area=5.0):
             continue
         box, (bw, bh) = min_area_rect(pts[:, :2])
         area = bw * bh
-        # rectilinearity: share of points close to the rectangle outline (walls) rather than spread inside
-        c = box.mean(0)
-        ax1 = (box[1] - box[0]) / (np.linalg.norm(box[1] - box[0]) + 1e-9)
-        ax2 = (box[2] - box[1]) / (np.linalg.norm(box[2] - box[1]) + 1e-9)
-        q = pts[:, :2] - c
-        d1 = np.abs(np.abs(q @ ax1) - bw / 2)
-        d2 = np.abs(np.abs(q @ ax2) - bh / 2)
-        rect = float(np.mean(np.minimum(d1, d2) < 0.45))
+        # rectilinearity from wall-height points under the cluster: walls hug a rectangle outline,
+        # foliage fills it
+        lo, hi = pts[:, :2].min(0) - 0.6, pts[:, :2].max(0) + 0.6
+        wsel = (hag > 0.6) & (hag < 2.2) & (Ps[:, 0] > lo[0]) & (Ps[:, 0] < hi[0]) & (Ps[:, 1] > lo[1]) & (Ps[:, 1] < hi[1])
+        rect = 0.0
+        if wsel.sum() > 60:
+            wpts = Ps[wsel][:, :2]
+            wbox, (ww, wh) = min_area_rect(wpts)
+            c = wbox.mean(0)
+            ax1 = (wbox[1] - wbox[0]) / (np.linalg.norm(wbox[1] - wbox[0]) + 1e-9)
+            ax2 = (wbox[2] - wbox[1]) / (np.linalg.norm(wbox[2] - wbox[1]) + 1e-9)
+            q = wpts - c
+            d1 = np.abs(np.abs(q @ ax1) - ww / 2)
+            d2 = np.abs(np.abs(q @ ax2) - wh / 2)
+            rect = float(np.mean(np.minimum(d1, d2) < 0.35))
+            if rect > 0.5:
+                box, (bw, bh) = wbox, (ww, wh)
+                area = bw * bh
         top = float(np.percentile(hag[sel], 97))
-        kind = "other" if rect > 0.45 and area > 6 else "tree"
-        out.append({"id": f"auto-{k}", "kind": kind, "label": f"{'Structure' if kind == 'other' else 'Tree or shrub'} ~{bw:.0f}×{bh:.0f} m",
-                    "footprint": box.round(2).tolist(), "height": round(top if kind == "other" else top, 1),
-                    "roof": "flat" if kind == "other" else "none", "provenance": "reconstructed", "uncertainty": 0.6,
-                    "evidence": {"points": int(len(pts)), "note": f"auto-detected, rectilinearity {rect:.2f}"}, "removable": True})
+        # sparse clouds cannot reliably tell a roof from a tree crown: say so, and keep it as an obstacle
+        rectilinear = rect > 0.5 and area > 6
+        out.append({"id": f"auto-{k}", "kind": "other",
+                    "label": f"{'Structure' if rectilinear else 'Tall structure or trees'} ~{bw:.0f}×{bh:.0f} m (unlabelled)",
+                    "footprint": box.round(2).tolist(), "height": round(top, 1), "roof": "flat", "provenance": "inferred",
+                    "uncertainty": 0.8, "removable": False,
+                    "evidence": {"points": int(len(pts)), "note": f"auto-detected tall cluster, wall rectilinearity {rect:.2f}; "
+                                                                  "label it in annotations.json"}})
     return out
 
 

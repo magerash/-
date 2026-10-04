@@ -155,7 +155,7 @@ function VariantCard({ site, v, active, inCompare }: { site: SiteModel; v: Varia
           {v.metrics.houseToForest !== null && <><span>House ↔ forest fence</span><span className="v">{v.metrics.houseToForest} m</span></>}
           {v.metrics.driveway !== null && <><span>Driveway</span><span className="v">{v.metrics.driveway} m</span></>}
           <span>Walk from gate</span><span className="v">{v.metrics.gateWalk} m</span>
-          <span>Clears</span><span className="v">{v.metrics.removed.length}</span>
+          <span>Affects existing</span><span className="v">{v.metrics.removed.length}</span>
           <span>Matches brief</span><span className="v">{v.metrics.briefScore}%</span>
         </div>
       </div>
@@ -186,7 +186,7 @@ function VariantDetail({ v }: { v: Variant }) {
           </div>
         ))}
       </div>
-      {v.metrics.removed.length > 0 && <div className="note" style={{ marginTop: 10 }}>Would clear: {v.metrics.removed.join(', ')}</div>}
+      {v.metrics.removed.length > 0 && <div className="note" style={{ marginTop: 10 }}>Would clear or take: {v.metrics.removed.join(', ')}</div>}
     </div>
   );
 }

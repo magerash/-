@@ -325,9 +325,13 @@ function nameVariants(vs: Variant[], site: PlanSite) {
       const v = vs[i];
       const peers = vs.filter((_, j) => names[j] === n);
       const walk = (x: Variant) => x.metrics.gateWalk + (x.metrics.driveway ?? 0);
-      if (v.metrics.largestOpen === Math.max(...peers.map((x) => x.metrics.largestOpen))) names[i] = `${n}, more open lawn`;
-      else if (walk(v) === Math.min(...peers.map(walk))) names[i] = `${n}, shorter walks`;
-      else names[i] = `${n} (alt. ${k + 1})`;
+      const taken = new Set(names.filter((_, j) => j !== i));
+      const options = [
+        v.metrics.largestOpen === Math.max(...peers.map((x) => x.metrics.largestOpen)) ? `${n}, more open lawn` : '',
+        walk(v) === Math.min(...peers.map(walk)) ? `${n}, shorter walks` : '',
+        `${n} (alt. ${k + 1})`,
+      ].filter((x) => x && !taken.has(x));
+      names[i] = options[0] ?? `${n} (alt. ${k + 1})`;
     }
   });
   vs.forEach((v, i) => {

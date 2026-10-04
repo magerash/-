@@ -63,6 +63,11 @@ export default function SitePanel({ site }: { site: SiteModel }) {
         </div>
       )}
 
+      {(site.scale.checks.some((c) => !c.ok) || site.conflicts.some((c) => c.topic === 'Footage coverage')) && (
+        <div className="section"><div className="note warn" style={{ marginTop: 0 }}>
+          <b>Treat this survey with caution.</b> {site.conflicts.find((c) => c.topic === 'Footage coverage')?.detail ?? 'Some scale checks failed.'} {site.conflicts.find((c) => c.topic === 'Footage coverage')?.resolution}
+        </div></div>
+      )}
       <div className="section">
         <h3>The plot</h3>
         <div className="bignum">
@@ -83,7 +88,7 @@ export default function SitePanel({ site }: { site: SiteModel }) {
       <div className="section">
         <h3>How it was measured</h3>
         <div className="kv small">
-          <span className="k">Keyframes used / registered</span><span className="v num">{site.reconstruction.registered} / {site.reconstruction.frames}</span>
+          <span className="k">Frames placed in 3D</span><span className="v num">{site.reconstruction.registered} <span className="muted">of {site.reconstruction.frames} keyframes</span></span>
           <span className="k">3D points</span><span className="v num">{site.reconstruction.points.toLocaleString()}</span>
           <span className="k">Reprojection error</span><span className="v num">{site.reconstruction.reprojectionError.toFixed(2)} px</span>
           <span className="k">Scale anchor</span><span className="v">{site.scale.method}</span>

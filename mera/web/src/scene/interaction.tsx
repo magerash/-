@@ -87,7 +87,7 @@ export function CameraRig({ site }: { site: SiteModel }) {
     if (req.kind === 'focus' && req.target && controls.current && view !== 'walk') {
       const tTo = new THREE.Vector3(...req.target);
       const dir = camera.position.clone().sub(controls.current.target).normalize();
-      const r = Math.max(10, (req.radius ?? 6) * 3.2);
+      const r = Math.max(16, (req.radius ?? 6) * 4 + 10);
       fly.current = { from: camera.position.clone(), to: tTo.clone().add(dir.multiplyScalar(r)), tFrom: controls.current.target.clone(), tTo, k: 0 };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -284,10 +284,22 @@ function catcher(site: SiteModel) {
 
 // ---------------- dragging proposals ----------------
 
+/** Where the pointer met the ground when a drag started (set by the building's pointer-down). */
+export const dragOrigin: { current: { u: number; v: number; pu: number; pv: number } | null } = { current: null };
+/** Time the last drag ended: the click that ends a drag must not count as "clicked empty space". */
+export const dragEnded = { at: 0 };
+
+export function groundHit(site: SiteModel, ray: THREE.Ray, nearU: number, nearV: number): [number, number] | null {
+  const y = terrainHeight(site, nearU, nearV);
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -y);
+  const p = new THREE.Vector3();
+  return ray.intersectPlane(plane, p) ? [p.x, -p.z] : null;
+}
+
 export function DragLayer({ site }: { site: SiteModel }) {
   const dragging = useStore((s) => s.dragging);
   const variant = useStore(activeVariantOf);
-  const start = useRef<{ u: number; v: number; pu: number; pv: number } | null>(null);
+  const start = dragOrigin;
   const ps = useMemo(() => planSite(site), [site]);
   const geom = useMemo(() => catcher(site), [site]);
   useEffect(() => {
@@ -297,6 +309,7 @@ export function DragLayer({ site }: { site: SiteModel }) {
       const v = activeVariantOf(st);
       if (v) st.updateVariant(reevaluate(ps, { ...v, edited: true }, st.rules));
       st.set({ dragging: null });
+      dragEnded.at = performance.now();
       document.body.style.cursor = '';
     };
     window.addEventListener('pointerup', up);
@@ -318,9 +331,11 @@ export function DragLayer({ site }: { site: SiteModel }) {
   }, [ps]);
   if (!dragging || !variant) return null;
   const onMove = (e: ThreeEvent<PointerEvent>) => {
-    const u = e.point.x, v = -e.point.z;
     const p = variant.placed.find((x) => x.itemId === dragging);
     if (!p) return;
+    const g = groundHit(site, e.ray, p.u, p.v);
+    if (!g) return;
+    const [u, v] = g;
     if (!start.current) start.current = { u, v, pu: p.u, pv: p.v };
     const nu = Math.round((start.current.pu + u - start.current.u) * 4) / 4;
     const nv = Math.round((start.current.pv + v - start.current.v) * 4) / 4;

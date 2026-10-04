@@ -28,7 +28,7 @@ export default function ExportDialog({ site }: { site: SiteModel }) {
       if (fmt === 'ply') {
         if (!site.pointcloud) throw new Error('no point cloud');
         download(await pointCloudPLY(api.file(pid, site.pointcloud.url)), `${site.id}_points.ply`);
-        setResult(`Saved ${site.pointcloud.count.toLocaleString()} points (meters, Y-up).`);
+        setResult(`Saved ${site.pointcloud.count.toLocaleString()} points (meters, Z-up, same place as the 3D files in Blender).`);
         return;
       }
       const scene = buildExportScene(site, variant, opt);

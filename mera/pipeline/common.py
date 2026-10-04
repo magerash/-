@@ -49,6 +49,9 @@ class Progress:
         self.state = read_json(self.path) or {"stages": {}}
 
     def update(self, stage: str, status: str, message: str = "", fraction: float | None = None) -> None:
+        # several modules report into the same file: merge with what is on disk
+        self.state = read_json(self.path) or self.state
+        self.state.setdefault("stages", {})
         s = self.state["stages"].setdefault(stage, {})
         s.update(status=status, message=message, updated=time.time())
         if fraction is not None:

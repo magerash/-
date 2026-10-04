@@ -12,10 +12,10 @@ await page.click('text=A two-storey house near the forest');
 await page.click('text=Generate variants');
 await page.waitForSelector('[data-testid=variant-card]', { timeout: 60000 });
 const results = [];
-for (const [what, fmt] of [['site', 'glb'], ['variant', 'glb'], ['variant', 'obj']]) {
+for (const [what, fmt] of [['site', 'glb'], ['variant', 'glb'], ['variant', 'obj'], ['site', 'ply']]) {
   await page.click('header >> text=Export');
   if (what === 'site') await page.selectOption('[aria-label="what to export"]', 'site');
-  await page.click(fmt === 'glb' ? 'text=glTF (.glb)' : 'text=OBJ (.zip)');
+  await page.click(fmt === 'glb' ? 'text=glTF (.glb)' : fmt === 'obj' ? 'text=OBJ (.zip)' : 'text=Point cloud (.ply)');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-testid=do-export]')]);
   const path = `${outdir}/${dl.suggestedFilename()}`;
   await dl.saveAs(path);

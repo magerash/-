@@ -105,7 +105,7 @@ const ROWS: Row[] = [
   { label: 'House ↔ road', get: (v) => v.metrics.houseToRoad, unit: 'm', better: null },
   { label: 'Walking from the gate', get: (v) => v.metrics.gateWalk, unit: 'm', better: 'low' },
   { label: 'Driveway length', get: (v) => v.metrics.driveway, unit: 'm', better: 'low' },
-  { label: 'Existing things cleared', get: (v) => v.metrics.removed.length, unit: '', better: 'low' },
+  { label: 'Existing things affected', get: (v) => v.metrics.removed.length, unit: '', better: 'low' },
 ];
 
 export function ComparePanel({ site }: { site: SiteModel }) {
@@ -137,7 +137,7 @@ export function ComparePanel({ site }: { site: SiteModel }) {
                 );
               })}
               <tr>
-                <td>Clears</td>
+                <td>Clears or takes</td>
                 {list.map((v) => <td key={v.id} style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-2)' }}>{v.metrics.removed.join(', ') || 'nothing'}</td>)}
               </tr>
             </tbody>

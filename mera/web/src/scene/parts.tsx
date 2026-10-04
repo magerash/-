@@ -7,6 +7,7 @@ import { useStore } from '../store';
 import { api } from '../api';
 import { elementParts, haloGeometry, placedParts, ribbon, terrainGeometry, terrainHeight, toWorld } from './geometry';
 import { labelPortal } from './labelPortal';
+import { dragOrigin, groundHit } from './interaction';
 import { COLORS, lineMat, mat } from './materials';
 import { describeZone } from '../plan/brief';
 
@@ -387,6 +388,8 @@ function PlacedMesh({ site, p, variant, interactive, labels, selected }: { site:
             onPointerDown={(ev: ThreeEvent<PointerEvent>) => {
               if (!interactive || useStore.getState().tool !== 'none') return;
               ev.stopPropagation();
+              const g = groundHit(site, ev.ray, p.u, p.v);
+              dragOrigin.current = g ? { u: g[0], v: g[1], pu: p.u, pv: p.v } : null;
               set({ selection: { kind: 'placed', id: p.itemId }, dragging: p.itemId });
             }}
             onPointerOver={(ev) => { if (interactive) { ev.stopPropagation(); document.body.style.cursor = 'grab'; } }}
