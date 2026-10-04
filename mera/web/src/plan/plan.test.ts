@@ -104,3 +104,12 @@ describe('solver', () => {
     expect(a.map((v) => v.placed.map((p) => [p.u, p.v]))).toEqual(b.map((v) => v.placed.map((p) => [p.u, p.v])));
   });
 });
+
+describe('geometry', () => {
+  it('computes convex overlap areas', async () => {
+    const { overlapArea } = await import('./geom');
+    expect(overlapArea(rect(0, 0, 4, 4), rect(2, 2, 6, 6))).toBeCloseTo(4, 6);
+    expect(overlapArea(rect(0, 0, 4, 4), rect(5, 5, 6, 6))).toBe(0);
+    expect(overlapArea(rect(0, 0, 4, 4), rect(1, 1, 2, 2))).toBeCloseTo(1, 6);
+  });
+});

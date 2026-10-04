@@ -23,8 +23,9 @@ async function screenOf(page: Page, u: number, v: number, h = 0) {
 
 test('loads the surveyed plot with evidence', async ({ page }) => {
   const errors = await open(page);
-  await expect(page.getByText('The plot')).toBeVisible();
-  await expect(page.getByText('How it was measured')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The plot' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'How it was measured' })).toBeVisible();
+  await expect(page.locator('.check').first()).toBeVisible(); // independent scale checks are listed
   const site = await page.evaluate(async (pid) => (await fetch(`/api/projects/${pid}/site`)).json(), PID);
   expect(site.units).toBe('m');
   expect(site.plot.width).toBeGreaterThan(46);
@@ -47,7 +48,7 @@ test('navigates: orbit, plan, walk and look through a source photo', async ({ pa
   await expect(page.getByText('Walking at 1.65 m eye height')).toBeVisible();
   await page.getByRole('toolbar').getByText('Orbit').click();
   // open a remark pinned on the map, then align the 3D camera with the phone
-  await page.locator('.lbl.pin').first().click();
+  await page.locator('.pin-dot').first().click();
   await expect(page.getByText('Source frame')).toBeVisible();
   await page.getByText('Look through this photo').click();
   await expect(page.locator('.photo-overlay img')).toBeVisible();
@@ -90,7 +91,7 @@ test('describes a build, gets placed variants, compares and exports at true scal
   await expect(page.locator('.item select[aria-label=type]').first()).toHaveValue('house');
   // compare
   await page.getByRole('navigation').getByText('Compare').click();
-  await expect(page.getByText('Side by side')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Side by side' })).toBeVisible();
   await expect(page.locator('.compare-cell')).toHaveCount(n >= 3 ? 4 : 2);
   // export the first variant as GLB and OBJ, then re-import both in trimesh + Blender
   const files: string[] = [];

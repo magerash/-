@@ -39,7 +39,7 @@ export function CameraRig({ site }: { site: SiteModel }) {
   const home = () => {
     persp.fov = 45;
     persp.updateProjectionMatrix();
-    camera.position.set(center.x - 34, center.y + 42, center.z + 62);
+    camera.position.set(center.x + 8, center.y + 44, center.z + 66); // from the road, the way you arrive
     controls.current?.target.copy(center);
     controls.current?.update();
   };

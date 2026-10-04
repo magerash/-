@@ -109,7 +109,7 @@ export function Boundary({ site, labels }: { site: SiteModel; labels: boolean })
               <Html portal={labelPortal} position={[mid.x, mid.y + 1.9, mid.z]} center zIndexRange={[10, 0]}>
                 <div className="lbl dim" style={{ transform: 'none' }}>
                   {e.id === 'road' ? 'Road side' : e.id === 'forest' ? 'Forest side' : e.id === 'left' ? 'Left side' : 'Right side'} · {fmt(e.modelLength)}
-                  <span style={{ opacity: 0.65 }}> · {stated}</span>
+                  <span style={{ opacity: 0.65 }}> · {stated}{e.reconstructedLength ? ` · video ${e.reconstructedLength.toFixed(1)}` : ''}</span>
                 </div>
               </Html>
             )}
@@ -126,6 +126,12 @@ export function Boundary({ site, labels }: { site: SiteModel; labels: boolean })
         );
       })}
       <Entrance site={site} labels={labels} />
+      {site.plot.fences?.map((f, i) => {
+        const a = toWorld(f.a[0], f.a[1], terrainHeight(site, f.a[0], f.a[1]) + 0.08);
+        const b = toWorld(f.b[0], f.b[1], terrainHeight(site, f.b[0], f.b[1]) + 0.08);
+        const strong = f.method === 'fence points';
+        return <Line key={'fe' + i} points={[a, b]} color={strong ? COLORS.recon : COLORS.inferred} lineWidth={1.6} dashed dashSize={0.5} gapSize={0.35} />;
+      })}
     </group>
   );
 }
@@ -174,7 +180,7 @@ export function Context({ site, labels = true }: { site: SiteModel; labels?: boo
   return (
     <group>
       <mesh geometry={forest.g} raycast={() => null}>
-        <meshStandardMaterial color="#47603f" transparent opacity={0.22} depthWrite={false} />
+        <meshStandardMaterial color="#47603f" transparent opacity={0.1} depthWrite={false} />
       </mesh>
       <Outline geom={forest.g} color="#47603f" dashed opacity={0.6} />
       {labels && (
@@ -205,7 +211,8 @@ export function Existing({ site, variant, labels, uncertainty }: { site: SiteMod
   );
 }
 
-const BIG = new Set(['house', 'sauna', 'shed', 'greenhouse', 'deck', 'parking', 'beds', 'tilled']);
+const BIG = new Set(['house', 'sauna', 'shed', 'greenhouse', 'deck', 'parking', 'beds', 'tilled', 'woodpile']);
+const LABELLED = new Set(['house', 'sauna', 'shed', 'greenhouse', 'woodpile', 'parking']);
 
 function ElementMesh({ site, e, removed, selected, labels, uncertainty, onSelect }: {
   site: SiteModel; e: SiteElement; removed: boolean; selected: boolean; labels: boolean; uncertainty: boolean; onSelect: () => void;
@@ -236,10 +243,10 @@ function ElementMesh({ site, e, removed, selected, labels, uncertainty, onSelect
           <meshBasicMaterial color={inferred ? COLORS.inferred : COLORS.recon} transparent opacity={0.16} depthWrite={false} side={THREE.DoubleSide} />
         </mesh>
       )}
-      {(labels && (BIG.has(e.kind) && e.kind !== 'beds' && e.kind !== 'tilled') || selected || removed) && (
+      {((labels && LABELLED.has(e.kind)) || selected || removed) && (
         <Html portal={labelPortal} position={top} center zIndexRange={[10, 0]}>
           <div className={`lbl ${removed ? 'warn' : inferred ? 'inferred' : ''}`} style={{ transform: 'none' }}>
-            {removed ? 'Cleared · ' : ''}{e.label}{e.uncertainty >= 0.3 && !removed ? <span className="muted"> ±{e.uncertainty.toFixed(1)} m</span> : null}
+            {removed ? 'Cleared · ' : ''}{selected ? e.label : e.label.split(' (')[0]}{e.uncertainty >= 0.3 && !removed ? <span className="muted"> ±{e.uncertainty.toFixed(1)} m</span> : null}
           </div>
         </Html>
       )}
@@ -322,20 +329,22 @@ export function CameraPath({ site }: { site: SiteModel }) {
 export function Pins({ site }: { site: SiteModel }) {
   const set = useStore((s) => s.set);
   const selection = useStore((s) => s.selection);
+  const [hover, setHover] = useState<number | null>(null);
   return (
     <group>
       {site.pins.map((p, i) => {
         const sel = selection?.kind === 'pin' && selection.id === String(i);
         const pos = new THREE.Vector3(...p.pos);
-        const tip = pos.clone().add(new THREE.Vector3(...p.dir).multiplyScalar(4));
+        const tip = pos.clone().add(new THREE.Vector3(...p.dir).multiplyScalar(5));
+        const open = sel || hover === i;
         return (
           <group key={i}>
             {sel && <Line points={[pos, tip]} color={COLORS.stated} lineWidth={2} dashed dashSize={0.4} gapSize={0.25} />}
-            <Html portal={labelPortal} position={[pos.x, pos.y + 0.9, pos.z]} center zIndexRange={[20, 10]}>
-              <div className="lbl pin" style={{ transform: 'none', fontWeight: sel ? 600 : 400 }}
-                onClick={() => set({ selection: { kind: 'pin', id: String(i) }, photo: { frameId: p.frame, aligned: false, opacity: 0.6 } })}
-                title={p.quote}>
-                “{p.label}”
+            <Html portal={labelPortal} position={[pos.x, pos.y + 0.6, pos.z]} center zIndexRange={[20, 10]}>
+              <div className={`pin-dot ${open ? 'open' : ''}`} title={p.quote}
+                onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover((h) => (h === i ? null : h))}
+                onClick={() => set({ selection: { kind: 'pin', id: String(i) }, photo: { frameId: p.frame, aligned: false, opacity: 0.6 } })}>
+                <span className="pin-glyph">“</span>{open && <span className="pin-text">{p.label}</span>}
               </div>
             </Html>
           </group>

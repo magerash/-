@@ -153,6 +153,7 @@ export function PhotoPanel({ site }: { site: SiteModel }) {
               <input type="range" min={0} max={1} step={0.05} value={photo.opacity} onChange={(e) => set({ photo: { ...photo, opacity: Number(e.target.value) } })} />model</label>
           )}
           <p className="small muted" style={{ margin: '6px 0 0' }}>Puts the 3D camera where the phone was. If the model and the photo line up, the reconstruction is right there.</p>
+          {cam.approx && <div className="note warn">This frame's pose comes from a weaker part of the reconstruction: its direction can be a few degrees off, so expect some misalignment.</div>}
         </div>
       ) : <p className="small muted">This frame was not registered in 3D (blurred or too little overlap), so it can't be aligned.</p>}
     </div>
@@ -168,6 +169,21 @@ export function PhotoOverlay({ site }: { site: SiteModel }) {
   return (
     <div className="photo-overlay" style={{ opacity: 1 - photo.opacity }}>
       <img src={api.file(pid, `site/undistorted/${photo.frameId}.jpg`)} onError={(e) => { (e.target as HTMLImageElement).src = api.frame(pid, photo.frameId); }} alt="" style={{ aspectRatio: String(cam.aspect) }} />
+    </div>
+  );
+}
+
+export function FirstHint() {
+  const [show, setShow] = useState(() => {
+    try { return localStorage.getItem('mera.hint') !== '1'; } catch { return true; }
+  });
+  if (!show) return null;
+  const close = () => { setShow(false); try { localStorage.setItem('mera.hint', '1'); } catch { /* private mode */ } };
+  return (
+    <div className="chip" style={{ maxWidth: 300, lineHeight: 1.45 }}>
+      <b style={{ fontWeight: 600 }}>Your plot, rebuilt from the video at true scale.</b>
+      <div className="muted">Drag to orbit, scroll to zoom, right-drag to pan. Click anything to see the frames and words it came from.</div>
+      <button className="btn sm" style={{ marginTop: 6 }} onClick={close}>Got it</button>
     </div>
   );
 }

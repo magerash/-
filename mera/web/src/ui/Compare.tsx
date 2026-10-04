@@ -42,6 +42,15 @@ function SyncedCamera({ index, site }: { index: number; site: SiteModel }) {
   return <OrbitControls ref={ref} makeDefault enableDamping={false} maxPolarAngle={Math.PI / 2 - 0.04} onStart={() => { shared.owner = index; }} />;
 }
 
+function setSharedView(site: SiteModel, kind: 'plan' | 'orbit') {
+  const u = site.plot.width / 2, v = site.plot.depth / 2;
+  const c = toWorld(u, v, terrainHeight(site, u, v));
+  shared.target.copy(c);
+  if (kind === 'plan') shared.pos.set(c.x, c.y + 95, c.z + 0.01);
+  else shared.pos.set(c.x - 30, c.y + 55, c.z + 55);
+  shared.owner = -1;
+}
+
 export function CompareView({ site }: { site: SiteModel }) {
   const { variants, compare } = useStore();
   const list = compare.map((id) => variants.find((v) => v.id === id)).filter(Boolean) as Variant[];
@@ -60,6 +69,7 @@ export function CompareView({ site }: { site: SiteModel }) {
   const cols = 2;
   const rows = cells.length <= 2 ? 1 : 2;
   return (
+    <>
     <div className="compare-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)` }}>
       {cells.map((v, i) => (
         <div key={v?.id ?? 'today'} className="compare-cell" onPointerDown={() => { shared.owner = i; }}>
@@ -73,6 +83,11 @@ export function CompareView({ site }: { site: SiteModel }) {
         </div>
       ))}
     </div>
+    <div className="toolbar" role="toolbar" aria-label="Compare view">
+      <button onClick={() => setSharedView(site, 'orbit')}>3D, all views together</button>
+      <button onClick={() => setSharedView(site, 'plan')}>Plan from above</button>
+    </div>
+    </>
   );
 }
 

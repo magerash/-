@@ -110,3 +110,6 @@ export const useStore = create<State>((set) => ({
 
 export const activeVariantOf = (s: { variants: Variant[]; activeVariant: string | null }) =>
   s.variants.find((v) => v.id === s.activeVariant) ?? null;
+
+// automation / debugging handle (read-only use by the browser journeys)
+if (typeof window !== 'undefined') (window as unknown as { __meraStore: typeof useStore }).__meraStore = useStore;

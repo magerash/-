@@ -112,3 +112,30 @@ export function hash(str: string): number {
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
+
+/** Area of the intersection of two convex polygons (Sutherland-Hodgman clipping). */
+export function overlapArea(subject: Vec2[], clip: Vec2[]): number {
+  let out = subject;
+  // make clip counter-clockwise
+  let sgn = 0;
+  for (let i = 0; i < clip.length; i++) { const a = clip[i], b = clip[(i + 1) % clip.length]; sgn += a[0] * b[1] - b[0] * a[1]; }
+  const C = sgn < 0 ? [...clip].reverse() : clip;
+  for (let i = 0; i < C.length && out.length; i++) {
+    const a = C[i], b = C[(i + 1) % C.length];
+    const inside = (p: Vec2) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) >= 0;
+    const inter = (p: Vec2, q: Vec2): Vec2 => {
+      const a1 = b[1] - a[1], b1 = a[0] - b[0], c1 = a1 * a[0] + b1 * a[1];
+      const a2 = q[1] - p[1], b2 = p[0] - q[0], c2 = a2 * p[0] + b2 * p[1];
+      const det = a1 * b2 - a2 * b1 || 1e-12;
+      return [(b2 * c1 - b1 * c2) / det, (a1 * c2 - a2 * c1) / det];
+    };
+    const input = out;
+    out = [];
+    for (let j = 0; j < input.length; j++) {
+      const p = input[j], q = input[(j + 1) % input.length];
+      if (inside(q)) { if (!inside(p)) out.push(inter(p, q)); out.push(q); }
+      else if (inside(p)) out.push(inter(p, q));
+    }
+  }
+  return out.length >= 3 ? area(out) : 0;
+}

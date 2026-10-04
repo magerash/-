@@ -3,7 +3,7 @@ import { useStore, activeVariantOf } from '../store';
 import type { BuildType, Program, ProgramItem, Rules, SiteModel, Variant, Zone } from '../types';
 import { parseBrief, describeZone } from '../plan/brief';
 import { CATALOG } from '../plan/catalog';
-import { reevaluate } from '../plan/solver';
+import { cornerReport, reevaluate } from '../plan/solver';
 import { solve } from '../plan/runSolver';
 import { planSite } from '../plan/metrics';
 import MiniPlan from './MiniPlan';
@@ -25,6 +25,8 @@ export default function PlanPanel({ site }: { site: SiteModel }) {
   const [busy, setBusy] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const active = activeVariantOf({ variants, activeVariant });
+  const corner = site.zones.find((z) => z.id === 'build-corner');
+  const cornerNotes = useMemo(() => (program && corner ? cornerReport(ps, program, rules, corner.polygon) : []), [program, corner, ps, rules]);
 
   const run = (prog: Program) => {
     setBusy(true);
@@ -102,6 +104,7 @@ export default function PlanPanel({ site }: { site: SiteModel }) {
             set({ program: { ...program, items: [...program.items, it] }, programDirty: true });
           }}><Icon d={ICONS.plus} size={14} />Add building</button>
           {program.notes.map((n) => <div key={n} className="note">{n}</div>)}
+          {cornerNotes.map((n) => <div key={n} className={`note ${n.includes('does not') ? 'warn' : ''}`}>{n}</div>)}
           {program.unparsed.map((u) => <div key={u} className="note warn">Not understood: “{u}”. Rephrase or add it by hand.</div>)}
           {programDirty && <button className="btn primary" style={{ marginTop: 10 }} onClick={() => run(program)} disabled={busy}>Regenerate with these changes</button>}
         </div>

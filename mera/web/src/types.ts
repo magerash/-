@@ -19,8 +19,20 @@ export interface BoundaryEdge {
   a: Vec2;
   b: Vec2;
   statedLength: [number, number] | null; // owner range, m
-  modelLength: number; // after calibration, m
-  rawResidual: number; // fit residual before scaling (m, after scale)
+  modelLength: number; // boundary length used by the model (owner's rectangle), m
+  reconstructedLength?: number; // fence-to-fence length in the reconstruction, m
+  rawResidual: number; // positional uncertainty of this side, m
+  method?: string; // 'fence points' | 'walking path + 0.7 m'
+  points?: number;
+}
+
+export interface FenceLine {
+  id: string;
+  a: Vec2;
+  b: Vec2;
+  method: string;
+  points?: number;
+  label?: string;
 }
 
 export interface Terrain {
@@ -66,6 +78,7 @@ export interface CameraPose {
   quat: [number, number, number, number]; // world-from-camera, three.js camera convention (looks -z)
   fovY: number; // degrees
   aspect: number;
+  approx?: boolean; // pose from a weaker merged sub-model (orientation may be off by a few degrees)
 }
 
 export interface VoicePin {
@@ -99,6 +112,8 @@ export interface SiteModel {
     statedWidth: [number, number];
     statedDepth: [number, number];
     edges: BoundaryEdge[];
+    fences?: FenceLine[]; // reconstructed fence evidence (dashed in the viewer)
+    reconstructedSize?: [number, number];
     entrance: { u: number; width: number; provenance: Provenance; evidence: Evidence };
   };
   terrain: Terrain;
@@ -126,6 +141,7 @@ export interface SiteModel {
   pointcloud: { url: string; count: number } | null;
   conflicts: { topic: string; detail: string; resolution: string }[];
   sourceClips: Record<string, string>; // input file -> clip id
+  transcriptGloss?: Record<string, string>; // segment index -> English (analyst translation)
 }
 
 export interface Transcript {

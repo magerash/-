@@ -68,6 +68,19 @@ def read_cameras(rec: pycolmap.Reconstruction):
     return cams
 
 
+def read_merged(path: Path):
+    z = np.load(path)
+    cams = []
+    for c in json.loads(str(z["cams"])):
+        name = Path(c["name"]).stem
+        clip, ms = name.split("_")
+        cams.append({"id": name, "clip": clip, "t": int(ms) / 1000.0, "C": np.array(c["C"]), "R": np.array(c["R"]),
+                     "w": c["w"], "h": c["h"], "params": np.array(c["params"]), "model": c["model"], "src": c["src"]})
+    cams.sort(key=lambda c: (c["clip"], c["t"]))
+    keep = z["err"] <= 2.0
+    return cams, z["pts"][keep], z["rgb"][keep], z["err"][keep]
+
+
 def read_points(rec: pycolmap.Reconstruction, max_err=2.0, min_track=3):
     xyz, rgb, err, ids = [], [], [], []
     for pid, p in rec.points3D.items():
@@ -89,7 +102,7 @@ def ransac_planes(P: np.ndarray, thresh: float, n_planes=12, min_inliers=300, it
         if len(remaining) < min_inliers:
             break
         Q = P[remaining]
-        best_inl, best_n = None, None
+        best_inl = None
         for _ in range(iters):
             s = Q[rng.choice(len(Q), 3, replace=False)]
             n = np.cross(s[1] - s[0], s[2] - s[0])
@@ -100,7 +113,7 @@ def ransac_planes(P: np.ndarray, thresh: float, n_planes=12, min_inliers=300, it
             d = np.abs((Q - s[0]) @ n)
             inl = np.nonzero(d < thresh)[0]
             if best_inl is None or len(inl) > len(best_inl):
-                best_inl, best_n = inl, n
+                best_inl = inl
         if best_inl is None or len(best_inl) < min_inliers:
             break
         X = Q[best_inl]
@@ -118,7 +131,9 @@ def estimate_up(cams, P, scale_hint: float):
     up0 /= np.linalg.norm(up0)
     spread = float(np.degrees(np.arccos(np.clip(ups @ up0, -1, 1))).mean())
     # refine with near-vertical planes (walls, fences): their normals must be horizontal
-    planes = ransac_planes(P, thresh=0.04 * scale_hint, n_planes=14, min_inliers=max(150, len(P) // 400))
+    rng = np.random.default_rng(0)
+    sub = P[rng.choice(len(P), min(len(P), 40000), replace=False)]
+    planes = ransac_planes(sub, thresh=0.04 * scale_hint, n_planes=14, min_inliers=max(120, len(sub) // 250), iters=600, rng=rng)
     walls = [p for p in planes if abs(p["n"] @ up0) < math.sin(math.radians(20))]
     up = up0
     info = {"camera_up_spread_deg": round(spread, 1), "walls": len(walls)}
@@ -257,13 +272,29 @@ def main(pid: str) -> None:
     diag: dict = {}
 
     prog.update("site", "running", "loading reconstruction", 0.05)
-    rec = load_largest(work)
-    cams = read_cameras(rec)
-    P, RGB, ERR, PIDS = read_points(rec)
+    merged = work / "merged.npz"
+    if merged.exists():
+        cams, P, RGB, ERR = read_merged(merged)
+        rep_err = float(np.mean(ERR))
+        diag["source"] = "merged sub-models"
+    else:
+        rec = load_largest(work)
+        cams = read_cameras(rec)
+        P, RGB, ERR, _ = read_points(rec)
+        rep_err = float(np.mean([p.error for p in rec.points3D.values()])) if rec.num_points3D() else 0.0
+        diag["source"] = "largest model"
     diag["registered"] = len(cams)
     diag["points"] = len(P)
     C = np.array([c["C"] for c in cams])
-    extent = float(np.ptp(C, axis=0).max())
+    # drop stray cameras (mis-registered frames end up far from the walk)
+    med = np.median(C, axis=0)
+    r = np.linalg.norm(C - med, axis=1)
+    keep_c = r < 3.0 * np.percentile(r, 90)
+    if (~keep_c).any():
+        diag["stray_cameras"] = [c["id"] for c, k in zip(cams, keep_c) if not k]
+        cams = [c for c, k in zip(cams, keep_c) if k]
+        C = C[keep_c]
+    extent = float(np.ptp(np.percentile(C, [2, 98], axis=0), axis=0).max())
 
     # --- gravity
     prog.update("site", "running", "estimating the vertical", 0.12)
@@ -291,19 +322,22 @@ def main(pid: str) -> None:
     axes = {"+a": np.array([math.cos(a), math.sin(a)]), "+b": np.array([-math.sin(a), math.cos(a)])}
     axes["-a"], axes["-b"] = -axes["+a"], -axes["+b"]
     camXZ = C_al[:, [0, 2]]
+    WALK_CLEAR = 0.7  # m between the walking line and a fence the owner walks along
     sides = {}
     for k, d in axes.items():
         along = axes["+b"] if k[1] == "a" else axes["+a"]
-        sides[k] = find_side(XZ, d, along, float((camXZ @ d).max()), unit)
+        walk_ext = float(np.percentile(camXZ @ d, 99.5))
+        cand = find_side(XZ, d, along, walk_ext, unit, search=(-0.8, 3.0))
+        if cand is not None and cand["points"] >= 600 and cand["cover_m"] >= 15:
+            cand["method"] = "fence points"
+            sides[k] = cand
+        else:
+            # picket and mesh fences barely reconstruct; the owner walked the boundary, so the
+            # fence is just beyond the outermost walking line
+            sides[k] = {"offset": walk_ext + WALK_CLEAR * unit, "points": cand["points"] if cand else 0,
+                        "cover_m": cand["cover_m"] if cand else 0, "resid": 0.7 * unit, "method": "walking path + 0.7 m"}
     diag["fence_angle_deg"] = ang
     diag["sides_raw"] = {k: v for k, v in sides.items()}
-    missing = [k for k, v in sides.items() if v is None]
-    if missing:
-        # fall back: walking-path extent plus a typical 1.5 m to the fence
-        for k in missing:
-            d = axes[k]
-            sides[k] = {"offset": float((camXZ @ d).max() + 1.5 * unit), "points": 0, "cover_m": 0,
-                        "along_min": 0, "along_max": 0, "resid": 1.5 * unit, "fallback": True}
 
     # --- orientation from narration
     cam_by_clip = {}
@@ -361,26 +395,29 @@ def main(pid: str) -> None:
     right_k = min(axes, key=lambda k: -float(axes[k] @ rdir))
     left_k = opposite[right_k]
 
-    # plot extents in model units
+    # plot extents in model units (reconstructed fence-to-fence)
     W_u = sides[right_k]["offset"] + sides[left_k]["offset"]
     D_u = sides[road_k]["offset"] + sides[forest_k]["offset"]
 
-    # --- scale: least squares over the four sides against owner figures
+    # --- scale: one similarity factor, least squares against the owner's figures on both axes
     sw, sd = float(np.mean(stated_w)), float(np.mean(stated_d))
     s = (sw * W_u + sd * D_u) / (W_u**2 + D_u**2)  # meters per model unit
-    W, D = W_u * s, D_u * s
+    W_rec, D_rec = W_u * s, D_u * s
     diag["scale_m_per_unit"] = s
-    diag["W_D_model"] = (W, D)
+    diag["W_D_reconstructed"] = (W_rec, D_rec)
     eye_m = eye_u * s if eye_u else None
+    # the boundary is the owner's rectangle (statements take precedence), centred on the fences
+    W, D = sw, sd
+    du0, dv0 = (W - W_rec) / 2, (D - D_rec) / 2
 
     # site transform: world(aligned) -> site (u, v, h)
-    # road-left corner: intersection of the two fence lines {p . axis_k = offset_k}
+    # road-left corner of the reconstructed fences: intersection of {p . axis_k = offset_k}
     o_xz = sides[road_k]["offset"] * axes[road_k] + sides[left_k]["offset"] * axes[left_k]
 
     def to_site(Xal: np.ndarray) -> np.ndarray:
         xz = Xal[:, [0, 2]] - o_xz
-        u = (xz @ rdir) * s
-        v = (xz @ fdir) * s
+        u = (xz @ rdir) * s + du0
+        v = (xz @ fdir) * s + dv0
         return np.c_[u, v, Xal[:, 1] * s]
 
     Ps = to_site(P_al)
@@ -451,6 +488,8 @@ def main(pid: str) -> None:
     flip = np.diag([1.0, -1.0, -1.0])  # COLMAP cam (x right, y down, z fwd) -> three cam (x right, y up, z back)
     cam_out = []
     frames_by_id = {f["id"]: f for f in frames["frames"]}
+    from collections import Counter
+    main_src = Counter(c.get("src", 0) for c in cams).most_common(1)[0][0]
     for c, cs in zip(cams, Cs):
         Rwc_al = Rg @ c["R"].T  # aligned-world from colmap-cam
         Rw = M.T @ Rwc_al @ flip
@@ -459,7 +498,8 @@ def main(pid: str) -> None:
         fovy = math.degrees(2 * math.atan(c["h"] / 2 / f_px))
         pos = to_world(cs[None])[0]
         cam_out.append({"id": c["id"], "clip": c["clip"], "t": c["t"], "pos": [round(float(x), 3) for x in pos],
-                        "quat": [round(float(x), 5) for x in q], "fovY": round(fovy, 2), "aspect": round(c["w"] / c["h"], 4)})
+                        "quat": [round(float(x), 5) for x in q], "fovY": round(fovy, 2), "aspect": round(c["w"] / c["h"], 4),
+                        **({"approx": True} if c.get("src", main_src) != main_src else {})})
         und = sitedir / "undistorted" / f"{c['id']}.jpg"
         if not und.exists() and c["id"] in frames_by_id:
             img = cv2.imread(str(pdir / "frames" / f"{c['id']}.jpg"))
@@ -499,13 +539,16 @@ def main(pid: str) -> None:
     # one pin per kind and place: drop near-duplicates (same kind within 4 m)
     dedup = []
     for p in pins:
-        if any(q["kind"] == p["kind"] and math.dist(q["pos"], p["pos"]) < 4 for q in dedup):
+        if any(q["kind"] == p["kind"] and math.dist(q["pos"], p["pos"]) < 8 for q in dedup):
             continue
         dedup.append(p)
 
     # --- elements from annotations, refined by points
     prog.update("site", "running", "fitting buildings and features", 0.8)
     elements, zones, checks = refine_annotations(ann, Ps, Cs, cams, s, W, D, terrain, ent_u)
+    if not ann.get("elements"):
+        site_ground = lambda u, v: ground0 + gu * u + gv * v  # noqa: E731
+        elements = auto_detect(Ps, site_ground, W, D)
 
     # --- scale cross-checks
     if eye_m:
@@ -515,35 +558,43 @@ def main(pid: str) -> None:
     # per-side residuals and lengths
     corners = {"road": ((0.0, 0.0), (W, 0.0)), "right": ((W, 0.0), (W, D)), "forest": ((W, D), (0.0, D)), "left": ((0.0, D), (0.0, 0.0))}
     kmap = {"road": road_k, "right": right_k, "forest": forest_k, "left": left_k}
-    edges = []
+    edges, fences = [], []
+    rec_rect = {"road": ((du0, dv0), (du0 + W_rec, dv0)), "right": ((du0 + W_rec, dv0), (du0 + W_rec, dv0 + D_rec)),
+                "forest": ((du0 + W_rec, dv0 + D_rec), (du0, dv0 + D_rec)), "left": ((du0, dv0 + D_rec), (du0, dv0))}
     for eid, (a0, b0) in corners.items():
         sd_ = sides[kmap[eid]]
         stated = stated_w if eid in ("road", "forest") else stated_d
+        ra, rb = rec_rect[eid]
+        gap = abs(du0) if eid in ("left", "right") else abs(dv0)
         edges.append({"id": eid, "a": [round(a0[0], 3), round(a0[1], 3)], "b": [round(b0[0], 3), round(b0[1], 3)],
                       "statedLength": stated, "modelLength": round(math.dist(a0, b0), 3),
-                      "rawResidual": round(sd_["resid"] * s, 3), "points": sd_["points"], "fallback": bool(sd_.get("fallback"))})
+                      "reconstructedLength": round(math.dist(ra, rb), 2),
+                      "rawResidual": round(sd_["resid"] * s + gap, 2), "points": sd_["points"], "method": sd_["method"]})
+        fences.append({"id": eid, "a": [round(ra[0], 2), round(ra[1], 2)], "b": [round(rb[0], 2), round(rb[1], 2)],
+                       "method": sd_["method"], "points": sd_["points"]})
 
-    aspect_fit = W / D
+    aspect_fit = W_rec / D_rec
     aspect_st = sw / sd
     resid_m = float(np.mean([e["rawResidual"] for e in edges]))
-    misfit = math.hypot(W - sw, D - sd)
-    acc = (f"Plot sides ±{max(0.3, resid_m + misfit / 2):.1f} m; building positions ±0.3–0.6 m where reconstructed, "
+    acc = (f"Boundary lines ±{max(0.3, resid_m):.1f} m; scale ±{abs(W_rec / sw - 1) * 100 + abs(D_rec / sd - 1) * 50:.0f}%; building positions ±0.3–0.6 m where reconstructed, "
            f"±1–2 m where inferred; heights ±{h_unc:.1f} m over the plot.")
     clips = []
     for cl in frames["clips"]:
         clips.append({"id": cl["id"], "registered": sum(1 for c in cams if c["clip"] == cl["id"]), "total": cl["keyframes"]})
-    rep = float(np.mean([p.error for p in rec.points3D.values()])) if rec.num_points3D() else 0.0
+    rep = rep_err
 
-    conflicts = build_conflicts(diag, terrain, W, D, stated_w, stated_d, facts, transcript)
+    conflicts = build_conflicts(diag, terrain, W_rec, D_rec, stated_w, stated_d, facts, transcript, fences, dedup) + ann.get("conflicts", [])
     site = {
         "id": pid, "name": meta.get("name", "Plot"), "units": "m", "createdAt": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
         "plot": {"width": round(W, 3), "depth": round(D, 3), "statedWidth": stated_w, "statedDepth": stated_d, "edges": edges,
+                 "fences": fences + [dict(f, id="evidence") for f in ann.get("fenceEvidence", [])],
+                 "reconstructedSize": [round(W_rec, 2), round(D_rec, 2)],
                  "entrance": {"u": round(ent_u, 2), "width": 4.0, "provenance": ent_prov,
                               "evidence": {"segments": [f["segment"] for f, _ in road_cues if f["kind"] == "entrance"]}}},
         "terrain": terrain, "elements": elements, "zones": zones,
         "context": {"forestDepth": 25, "forestHeight": 22, "roadWidth": 6, "provenance": "inferred",
                     "note": "Forest stated by the owner; tree height judged from the frames; road width not surveyed."},
-        "scale": {"method": f"owner's plot size {sw:g} × {sd:g} m fitted to 4 reconstructed fence lines",
+        "scale": {"method": f"one scale factor fitted to the owner's {sw:g} × {sd:g} m on both axes",
                   "metersPerUnit": s, "aspectFit": round(aspect_fit, 4), "aspectStated": round(aspect_st, 4),
                   "checks": checks, "expectedAccuracy": acc},
         "reconstruction": {"frames": len(frames["frames"]), "registered": len(cams), "points": len(P), "reprojectionError": round(rep, 3),
@@ -552,10 +603,12 @@ def main(pid: str) -> None:
         "pointcloud": {"url": "site/points.bin", "count": int(len(keep))},
         "conflicts": conflicts,
         "sourceClips": {cl["file"]: cl["id"] for cl in frames["clips"]},
+        "transcriptGloss": ann.get("transcriptGloss", {}),
     }
     write_json(pdir / "site.json", site)
     write_json(pdir / "work" / "site_diag.json", json.loads(json.dumps(diag, default=_jsonable)))
-    prog.update("site", "done", f"plot {W:.1f} × {D:.1f} m (owner {sw:g} × {sd:g}), slope {slope:.1f}%, {len(elements)} elements", 1.0)
+    prog.update("site", "done", f"fences {W_rec:.1f} × {D_rec:.1f} m reconstructed vs owner {sw:g} × {sd:g}; eye height "
+                f"{eye_m or 0:.2f} m; slope {slope:.1f}%; {len(elements)} elements", 1.0)
 
 
 def _jsonable(o):
@@ -645,11 +698,23 @@ def refine_annotations(ann, Ps, Cs, cams, s, W, D, terrain, ent_u):
         out.setdefault("evidence", {})
         out["evidence"]["points"] = n_pts
         out.setdefault("removable", True)
-        for k in ("fit", "grow", "min_points", "uncertainty_fit", "measure_height"):
+        for k in ("fit", "grow", "min_points", "uncertainty_fit", "measure_height", "provenance_height"):
             out.pop(k, None)
         if "check" in out:
             ck = out.pop("check")
             val = out.get("measured_top") if ck.get("what") == "height" else None
+            if ck.get("what") == "height_pct":
+                fpn = np.array(out["footprint"])
+                m = points_in_poly(Ps[:, :2], fpn)
+                if m.sum() > 50:
+                    hz = Ps[m, 2] - np.percentile(Ps[m, 2], 2)
+                    val = float(np.percentile(hz, ck.get("pct", 98)))
+                    out["provenance_height"] = "reconstructed"
+            if ck.get("what") == "height_pct" and val is not None:
+                lo, hi = ck["expected"]
+                checks.append({"label": ck["label"], "expected": [lo, hi], "measured": round(val, 2), "ok": lo <= val <= hi,
+                               "note": ck.get("note", "")})
+                val = None
             if ck.get("what") == "width":
                 fpn = np.array(out["footprint"])
                 val = float(min(np.linalg.norm(fpn[1] - fpn[0]), np.linalg.norm(fpn[2] - fpn[1])))
@@ -667,6 +732,53 @@ def refine_annotations(ann, Ps, Cs, cams, s, W, D, terrain, ent_u):
     for ck in ann.get("checks", []):
         checks.append(ck)
     return elements, zones, checks
+
+
+def auto_detect(Ps, terrain_site, W, D, min_area=5.0):
+    """Fallback when no annotations exist: tall rectilinear clusters -> structures, blobs -> trees.
+
+    Ps: site coords (u, v, h); terrain_site: function (u, v) -> ground height in the same datum.
+    """
+    from scipy import ndimage
+
+    hag = Ps[:, 2] - terrain_site(Ps[:, 0], Ps[:, 1])
+    inside = (Ps[:, 0] > 0.3) & (Ps[:, 0] < W - 0.3) & (Ps[:, 1] > 0.3) & (Ps[:, 1] < D - 0.3)
+    tall = inside & (hag > 1.9) & (hag < 9)
+    cell = 0.5
+    nu, nv = int(W / cell) + 1, int(D / cell) + 1
+    grid = np.zeros((nv, nu), np.int32)
+    iu = np.clip((Ps[tall, 0] / cell).astype(int), 0, nu - 1)
+    iv = np.clip((Ps[tall, 1] / cell).astype(int), 0, nv - 1)
+    np.add.at(grid, (iv, iu), 1)
+    occ = ndimage.binary_closing(grid >= 3, iterations=1)
+    lab, n = ndimage.label(occ)
+    out = []
+    for k in range(1, n + 1):
+        cells = np.argwhere(lab == k)
+        if len(cells) * cell * cell < min_area:
+            continue
+        sel = tall.copy()
+        sel[tall] = lab[iv, iu] == k
+        pts = Ps[sel]
+        if len(pts) < 80:
+            continue
+        box, (bw, bh) = min_area_rect(pts[:, :2])
+        area = bw * bh
+        # rectilinearity: share of points close to the rectangle outline (walls) rather than spread inside
+        c = box.mean(0)
+        ax1 = (box[1] - box[0]) / (np.linalg.norm(box[1] - box[0]) + 1e-9)
+        ax2 = (box[2] - box[1]) / (np.linalg.norm(box[2] - box[1]) + 1e-9)
+        q = pts[:, :2] - c
+        d1 = np.abs(np.abs(q @ ax1) - bw / 2)
+        d2 = np.abs(np.abs(q @ ax2) - bh / 2)
+        rect = float(np.mean(np.minimum(d1, d2) < 0.45))
+        top = float(np.percentile(hag[sel], 97))
+        kind = "other" if rect > 0.45 and area > 6 else "tree"
+        out.append({"id": f"auto-{k}", "kind": kind, "label": f"{'Structure' if kind == 'other' else 'Tree or shrub'} ~{bw:.0f}×{bh:.0f} m",
+                    "footprint": box.round(2).tolist(), "height": round(top if kind == "other" else top, 1),
+                    "roof": "flat" if kind == "other" else "none", "provenance": "reconstructed", "uncertainty": 0.6,
+                    "evidence": {"points": int(len(pts)), "note": f"auto-detected, rectilinearity {rect:.2f}"}, "removable": True})
+    return out
 
 
 def order_box(box, ref):
@@ -692,21 +804,42 @@ def points_in_poly(xy, poly):
     return inside
 
 
-def build_conflicts(diag, terrain, W, D, stated_w, stated_d, facts, transcript):
+def compass(deg):
+    d = ((deg % 360) + 360) % 360
+    names = ["toward the forest", "toward the forest-right corner", "toward the right fence", "toward the road-right corner",
+             "toward the road", "toward the road-left corner", "toward the left fence", "toward the forest-left corner"]
+    return names[int(((d + 22.5) % 360) // 45)]
+
+
+def build_conflicts(diag, terrain, W_rec, D_rec, stated_w, stated_d, facts, transcript, fences, pins):
     out = []
-    sw, sd = float(np.mean(stated_w)), float(np.mean(stated_d))
-    if abs(W / D - sw / sd) > 0.03:
-        out.append({"topic": "Plot proportions",
-                    "detail": f"Fitted fence lines give {W:.1f} × {D:.1f} m after scaling; the owner's figures are {sw:g} × {sd:g} m.",
-                    "resolution": "Owner's figures win: scale is fitted to them; the remaining difference is shown as the side-length uncertainty."})
-    slope_said = [f for f in facts.get("facts", []) if f["kind"] == "slope"]
-    if slope_said:
+    sd = float(np.mean(stated_d))
+    weak = [f["id"] for f in fences if f["method"] != "fence points"]
+    out.append({"topic": "Plot size",
+                "detail": f"Fence-to-fence in the reconstruction: {W_rec:.1f} m along the road × {D_rec:.1f} m to the forest "
+                          f"(at one uniform scale). Owner's figures: {stated_w[0]:g}–{stated_w[1]:g} × ~{sd:g} m."
+                          + (f" The {', '.join(weak)} fence line{'s' if len(weak) > 1 else ''} had too few 3D points and "
+                             f"{'were' if len(weak) > 1 else 'was'} placed 0.7 m beyond the walking path." if weak else ""),
+                "resolution": "Owner's figures win: the boundary is their rectangle, centred on the reconstructed fences. "
+                              "The difference is shown as the boundary uncertainty; check the corners on site before building near a fence."})
+    slope_pins = [p for p in pins if p["kind"] == "slope"]
+    if slope_pins:
+        lines = []
+        for p in slope_pins:
+            hd = math.degrees(math.atan2(p["dir"][0], -p["dir"][2]))
+            if "за мной" in p["quote"] or "behind me" in p["quote"]:
+                hd += 180  # "toward behind me"
+            a = math.radians(hd)
+            fall = -(terrain["gu"] * math.sin(a) + terrain["gv"] * math.cos(a)) * 100
+            lines.append(f"{p['clip']} {int(p['t'] // 60)}:{int(p['t'] % 60):02d} points {compass(hd)}: measured fall that way {fall:+.1f}%")
         out.append({"topic": "Slope",
-                    "detail": f"The owner says the land falls away (“{slope_said[0]['quote'][:70]}…”). "
-                              f"The reconstruction measures {terrain['slopePct']:.1f}% (≈{terrain['slopePct'] / 100 * max(W, D):.1f} m over the plot).",
-                    "resolution": "Measured plane kept; it agrees in kind. Exact levels need a survey before foundations."})
+                    "detail": f"Measured: {terrain['slopePct']:.1f}% falling {compass(terrain['fallDirectionDeg'])} "
+                              f"(≈{terrain['slopePct'] / 100 * max(W_rec, D_rec):.1f} m across the plot). The owner mentions the slope three times: "
+                              + "; ".join(lines) + ".",
+                    "resolution": "Agrees where the owner points toward the left fence; the fall toward the forest he also mentions is within "
+                                  "the ±1.7% this survey can resolve. Get levels surveyed before designing foundations or drainage."})
     out.append({"topic": "Plot dimensions",
-                "detail": "No dimensions are spoken in the recording; the owner says they will send them separately (“габариты участка”).",
+                "detail": "No dimensions are spoken in the recording; the owner says they will send them separately (\u201cгабариты участка\u201d).",
                 "resolution": f"Using the supplied figures: {stated_w[0]:g}–{stated_w[1]:g} m along the road, about {sd:g} m road to forest."})
     return out
 

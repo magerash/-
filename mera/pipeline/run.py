@@ -13,6 +13,7 @@ import traceback
 import build_site
 import facts
 import ingest
+import merge_models
 import sfm
 import transcribe
 from common import Progress, inputs
@@ -41,8 +42,8 @@ def main() -> None:
             elif st == "facts":
                 facts.main(pid)
             elif st == "reconstruct":
-                sfm.main(pid)
-                prog.update("reconstruct", "done", "SfM finished", 1.0)
+                sfm.main(pid)  # features, matching, incremental mapping (may yield several sub-models)
+                merge_models.main(pid, "models")  # bring sub-models into one frame
             elif st == "site":
                 build_site.main(pid)
         except SystemExit:

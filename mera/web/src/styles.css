@@ -92,7 +92,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .section h3 { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); display: flex; align-items: center; gap: 8px; }
 .section h3 .right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; }
 .section p { margin: 0 0 8px; }
-.kv { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: baseline; }
+.kv { display: grid; grid-template-columns: minmax(118px, max-content) 1fr; gap: 4px 12px; align-items: baseline; }
 .kv .k { color: var(--ink-2); }
 .kv .v { text-align: right; }
 .big { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; }
@@ -213,4 +213,14 @@ input, textarea, select { font: inherit; color: inherit; }
   .tabs button { padding: 5px 9px; }
   .toolbar { bottom: 8px; max-width: calc(100% - 16px); overflow-x: auto; }
   .toolbar .label { display: none; }
+  .topbar .label { display: none; }
+  .topbar .btn { padding: 6px 8px; }
+  .brand b { font-size: 14px; }
+  .tabs button .count { display: none; }
+  .legend { font-size: 11px; padding: 4px 8px; }
+  .legend .muted { display: none; }
 }
+
+.pin-dot { pointer-events: auto; display: inline-flex; align-items: center; gap: 4px; background: #fff; border: 1.5px solid var(--stated); color: var(--stated); border-radius: 99px; height: 20px; min-width: 20px; padding: 0 5px; cursor: pointer; font: 11px/1 var(--sans); white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.pin-dot .pin-glyph { font: 600 14px/1 Georgia, serif; margin-top: 4px; }
+.pin-dot.open { background: var(--stated); color: #fff; }

@@ -4,7 +4,7 @@ import { api, type ProjectInfo } from './api';
 import SitePanel from './ui/SitePanel';
 import PlanPanel from './ui/PlanPanel';
 import { ComparePanel, CompareView } from './ui/Compare';
-import { Legend, PhotoOverlay, PhotoPanel, Toolbar } from './ui/Overlays';
+import { FirstHint, Legend, PhotoOverlay, PhotoPanel, Toolbar } from './ui/Overlays';
 import ExportDialog from './ui/ExportDialog';
 import { NewSurvey, Progress } from './ui/Onboarding';
 import { Icon, ICONS } from './ui/common';
@@ -89,7 +89,7 @@ export default function App() {
               </Suspense>
               <div ref={(el) => { if (el) labelPortal.current = el; }} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 1 }} />
               <PhotoOverlay site={site} />
-              <div className="hud tl"><Legend site={site} /></div>
+              <div className="hud tl"><Legend site={site} /><FirstHint /></div>
               <Toolbar />
             </>
           )}

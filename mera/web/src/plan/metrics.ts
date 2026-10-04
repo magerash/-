@@ -2,7 +2,7 @@
 // scoring) and after the owner drags a building by hand, so numbers never go stale.
 import type { Check, Metrics, Placed, Program, Rules, SiteElement, SiteModel, Vec2 } from '../types';
 import { CATALOG, isVolume } from './catalog';
-import { area, centroid, convexOverlap, dist, pathLength, polyDist, rectPoly, sideDist, simplify } from './geom';
+import { area, centroid, convexOverlap, dist, overlapArea, pathLength, polyDist, rectPoly, sideDist, simplify } from './geom';
 
 export interface PlanSite {
   edges: { id: 'road' | 'right' | 'forest' | 'left'; a: Vec2; b: Vec2 }[]; // CCW, interior on the left
@@ -31,6 +31,23 @@ export function planSite(site: SiteModel): PlanSite {
 
 export const placedPoly = (p: Placed) => rectPoly(p.u, p.v, p.w, p.d);
 export const VOLUME_KINDS = new Set(['house', 'sauna', 'shed', 'greenhouse', 'woodpile']);
+/** Ground-level areas: a building can take part of them without clearing the rest. */
+export const AREA_KINDS = new Set(['beds', 'tilled', 'parking', 'rockgarden']);
+
+/** m2 of each ground-level area that the placed buildings would take. */
+export function areaUse(placed: Placed[], existing: SiteElement[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const p of placed) {
+    if (p.type === 'garden' || p.type === 'parking') continue;
+    const poly = placedPoly(p);
+    for (const e of existing) {
+      if (!AREA_KINDS.has(e.kind) || !convexOverlap(poly, e.footprint)) continue;
+      const a = overlapArea(poly, e.footprint);
+      if (a > 0.5) out.set(e.id, (out.get(e.id) ?? 0) + a);
+    }
+  }
+  return out;
+}
 export const HARD_KINDS = new Set(['house', 'sauna', 'shed', 'greenhouse', 'deck', 'woodpile', 'tank', 'trampoline']);
 
 export function setbackFor(p: Placed, edge: 'road' | 'right' | 'forest' | 'left', rules: Rules): number {
@@ -308,7 +325,10 @@ export function evaluate(site: PlanSite, program: Program, placed: Placed[], rem
     houseToRoad: house ? +edgeDist(house, 'road').toFixed(1) : null,
     gateWalk: Math.round(gateWalk),
     driveway: driveway === null ? null : Math.round(driveway),
-    removed: site.existing.filter((e) => removed.has(e.id)).map((e) => e.label),
+    removed: [
+      ...site.existing.filter((e) => removed.has(e.id)).map((e) => e.label.split(' (')[0]),
+      ...[...areaUse(placed, site.existing)].map(([id, a]) => `${Math.round(a)} m² of ${site.existing.find((e) => e.id === id)!.label.split(' (')[0].toLowerCase()}`),
+    ],
     briefScore,
     checksPassed: checks.filter((c) => c.ok).length,
     checksTotal: checks.length,

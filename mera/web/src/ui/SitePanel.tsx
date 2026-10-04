@@ -47,15 +47,18 @@ export default function SitePanel({ site }: { site: SiteModel }) {
           <div className="kv">
             <span className="k">Model length</span><span className="v num">{edge.modelLength.toFixed(2)} m</span>
             <span className="k">Owner's figure</span><span className="v num">{edge.statedLength ? `${edge.statedLength[0]}–${edge.statedLength[1]} m` : '—'}</span>
-            <span className="k">Fence-line fit residual</span><span className="v num">±{edge.rawResidual.toFixed(2)} m</span>
+            {edge.reconstructedLength !== undefined && <><span className="k">Fence to fence in the video</span><span className="v num">{edge.reconstructedLength.toFixed(1)} m</span></>}
+            <span className="k">This side's position</span><span className="v num">±{edge.rawResidual.toFixed(1)} m</span>
+            <span className="k">Evidence</span><span className="v small">{edge.method === 'fence points' ? `${edge.points?.toLocaleString()} fence points` : 'walking path (fence barely reconstructed)'}</span>
           </div>
-          <p className="small muted" style={{ marginTop: 8 }}>The fence line was fitted to reconstructed fence points; scale comes from the owner's plot dimensions. Use the ruler tool to measure it corner to corner.</p>
+          <p className="small muted" style={{ marginTop: 8 }}>The boundary uses your plot figures; the dashed line next to it is where the video puts this fence (green: fence points, amber: walking path). Measure corner to corner with the ruler.</p>
         </div>
       )}
       {pin && (
         <div className="section">
           <h3>Said at this spot <span className="right"><button className="btn sm ghost" onClick={() => set({ selection: null })}>Close</button></span></h3>
-          <div className="quote"><span className="t">{pin.clip} {fmtT(pin.t)}</span>{pin.quote}</div>
+          <div className="quote"><span className="t">{pin.clip} {fmtT(pin.t)}</span>{pin.quote}
+            {site.transcriptGloss?.[String(pin.segment)] && <div className="small" style={{ color: 'var(--ink)' }}>{site.transcriptGloss[String(pin.segment)]}</div>}</div>
           <p className="small muted">Pinned where the camera was when this was said; the dashed line shows where it was pointing.</p>
         </div>
       )}
@@ -137,20 +140,21 @@ export default function SitePanel({ site }: { site: SiteModel }) {
       {transcript && (
         <div className="section">
           <h3>What the owner said <span className="right small muted">{transcript.language.toUpperCase()} · {transcript.primary_model}</span></h3>
-          {transcript.segments.filter((s) => s.text.split(' ').length > 2).map((s, i) => {
-            const pinIdx = site.pins.findIndex((p) => p.quote === s.text);
+          {transcript.segments.map((s, i) => ({ s, i })).filter(({ s }) => s.text.split(' ').length > 2).map(({ s, i }) => {
+            const pinIdx = site.pins.findIndex((p) => p.segment === i);
             const clip = site.sourceClips[s.source];
             return (
               <div key={i} className="quote" style={{ cursor: pinIdx >= 0 ? 'pointer' : 'default', borderColor: pinIdx >= 0 ? 'var(--stated)' : 'var(--line)' }}
                 onClick={() => { if (pinIdx >= 0) set({ selection: { kind: 'pin', id: String(pinIdx) }, photo: { frameId: site.pins[pinIdx].frame, aligned: false, opacity: 0.6 } }); }}>
                 <span className="t">{clip ?? ''} {fmtT(s.t0)}</span>{s.text}
+                {site.transcriptGloss?.[String(i)] && <div className="small" style={{ color: 'var(--ink)' }}>{site.transcriptGloss[String(i)]}</div>}
                 {s.alt && s.alt.toLowerCase().replace(/[^\p{L}\s]/gu, '') !== s.text.toLowerCase() && s.alt.length > 3 && (
                   <div className="small muted" title="Second speech model (Whisper) heard this">alt: {s.alt}</div>
                 )}
               </div>
             );
           })}
-          <p className="small muted">Click a blue-marked line to see where on the plot it was said and what the camera saw.</p>
+          <p className="small muted">Russian as transcribed (GigaAM); English lines are an analyst translation. Click a blue-marked line to see where on the plot it was said and what the camera saw.</p>
         </div>
       )}
     </div>

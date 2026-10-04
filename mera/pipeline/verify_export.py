@@ -88,10 +88,10 @@ def check_trimesh(path: Path):
 
 def check_blender(path: Path):
     try:
-        import bpy  # noqa: F401
+        import bpy
+        import mathutils
     except Exception:
         return None
-    import bpy
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.context.scene.unit_settings.system = "METRIC"
@@ -110,7 +110,7 @@ def check_blender(path: Path):
         if "Boundary" not in name:
             continue
         for v in ob.bound_box:
-            w = ob.matrix_world @ __import__("mathutils").Vector(v)
+            w = ob.matrix_world @ mathutils.Vector(v)
             xs.append(w.x)
             ys.append(w.y)
             zs.append(w.z)

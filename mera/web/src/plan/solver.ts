@@ -3,8 +3,8 @@
 // weighted differently per strategy so the variants are genuinely different answers.
 import type { Placed, Program, ProgramItem, Rules, SiteElement, Variant, Vec2 } from '../types';
 import { CATALOG, heightsFor, isVolume } from './catalog';
-import { conflictsWith, evaluate, placedPoly, setbackFor, zoneSlack, HARD_KINDS, type PlanSite } from './metrics';
-import { convexOverlap, dist, hash, polyDist, rng, sideDist, area } from './geom';
+import { AREA_KINDS, conflictsWith, evaluate, placedPoly, setbackFor, zoneSlack, HARD_KINDS, type PlanSite } from './metrics';
+import { convexOverlap, dist, hash, overlapArea, polyDist, rng, sideDist } from './geom';
 import { describeZone } from './brief';
 
 interface Strategy {
@@ -25,18 +25,15 @@ export const STRATEGIES: Strategy[] = [
   { id: 'lawn', name: 'Open lawn', blurb: 'Keeps one large open area in the middle.', wZone: 3, wRemove: 1.5, wAccess: 0.2, wCompact: 0, wPeriph: 3 },
 ];
 
-// removal cost per existing element kind (per m^2 for areas, per item for objects)
+// removal cost per existing element kind (per item); areas are charged per m2 actually taken
+const AREA_RATE: Partial<Record<SiteElement['kind'], number>> = { beds: 0.8, tilled: 0.3, parking: 0.5, rockgarden: 1.5 };
 const REMOVE_COST: Partial<Record<SiteElement['kind'], (e: SiteElement) => number>> = {
-  beds: (e) => 0.6 * area(e.footprint),
-  tilled: (e) => 0.25 * area(e.footprint),
-  rockgarden: () => 12,
   tree: () => 10,
   shed: () => 6,
   greenhouse: () => 18,
   woodpile: () => 3,
   tank: () => 2,
   trampoline: () => 2,
-  parking: (e) => 0.8 * area(e.footprint),
   deck: () => 60,
   other: () => 4,
 };
@@ -89,6 +86,11 @@ function cost(ctx: Ctx, L: Placed[]): { c: number; removed: Set<string> } {
     for (const e of conflictsWith(grown, site.existing, new Set())) {
       if (p.type === 'garden' && (e.kind === 'beds' || e.kind === 'tilled')) continue; // a garden over beds is no loss
       if (p.type === 'parking' && e.kind === 'parking') continue;
+      if (AREA_KINDS.has(e.kind)) { // takes part of a bed / field / parking: pay per m2, the rest stays
+        if (!removable(e, program)) c += 3000;
+        else c += s.wRemove * (AREA_RATE[e.kind] ?? 0.5) * overlapArea(poly, e.footprint);
+        continue;
+      }
       if (!removable(e, program)) { c += 3000 + 50 * overlapDepth(poly, e.footprint); continue; }
       if (!removed.has(e.id)) {
         removed.add(e.id);
@@ -314,6 +316,20 @@ function nameVariants(vs: Variant[], site: PlanSite) {
     });
     if (!changed) break;
   }
+  // still identical? say what each one is best at, or number them
+  const seen = new Map<string, number>();
+  names.forEach((n, i) => {
+    const k = seen.get(n) ?? 0;
+    seen.set(n, k + 1);
+    if (k > 0) {
+      const v = vs[i];
+      const peers = vs.filter((_, j) => names[j] === n);
+      const walk = (x: Variant) => x.metrics.gateWalk + (x.metrics.driveway ?? 0);
+      if (v.metrics.largestOpen === Math.max(...peers.map((x) => x.metrics.largestOpen))) names[i] = `${n}, more open lawn`;
+      else if (walk(v) === Math.min(...peers.map(walk))) names[i] = `${n}, shorter walks`;
+      else names[i] = `${n} (alt. ${k + 1})`;
+    }
+  });
   vs.forEach((v, i) => {
     const main = v.placed.reduce((a, b) => (a.w * a.d >= b.w * b.d ? a : b));
     v.name = `${String.fromCharCode(65 + i)} · ${names[i]}`;
@@ -340,13 +356,57 @@ export function reevaluate(site: PlanSite, v: Variant, rules: Rules): Variant {
   const removed = new Set(v.program.clear);
   for (const p of v.placed) {
     for (const e of conflictsWith(placedPoly(p), site.existing, new Set())) {
-      if (p.type === 'garden' && (e.kind === 'beds' || e.kind === 'tilled')) continue;
-      if (p.type === 'parking' && e.kind === 'parking') continue;
+      if (AREA_KINDS.has(e.kind)) continue; // partly taken, reported in m2
       if (removable(e, v.program)) removed.add(e.id);
     }
   }
   const ev = evaluate(site, v.program, v.placed, [...removed], rules);
   return { ...v, removed: [...removed], paths: ev.paths, metrics: ev.metrics, checks: ev.checks };
+}
+
+/**
+ * Does each building of the program fit in the owner's stated corner? Returns plain-language
+ * findings, e.g. "House: no — would be 3.1 m from the existing sauna (8 m needed)".
+ */
+export function cornerReport(site: PlanSite, program: Program, rules: Rules, zone: Vec2[] | null): string[] {
+  if (!zone) return [];
+  const us = zone.map((p) => p[0]), vs = zone.map((p) => p[1]);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const it of program.items) {
+    if (!isVolume(it.type) || seen.has(it.type + it.w + it.d)) continue;
+    seen.add(it.type + it.w + it.d);
+    let best: { score: number; reasons: string[] } | null = null;
+    for (const rot of [0, 90] as const) {
+      const p0 = makePlaced(it, 0, 0, rot);
+      for (let u = Math.min(...us) + p0.w / 2; u <= Math.max(...us) - p0.w / 2 + 1e-6; u += 0.5) {
+        for (let v = Math.min(...vs) + p0.d / 2; v <= Math.max(...vs) - p0.d / 2 + 1e-6; v += 0.5) {
+          const p = makePlaced(it, u, v, rot);
+          const poly = placedPoly(p);
+          const reasons: string[] = [];
+          let score = 0;
+          for (const e of site.edges) {
+            const d = Math.min(...poly.map((q) => sideDist(q, e.a, e.b)));
+            const lim = setbackFor(p, e.id, rules);
+            if (d < lim - 1e-6) { reasons.push(`only ${Math.max(0, d).toFixed(1)} m from the ${e.id === 'forest' ? 'forest-side' : e.id} boundary (${lim} m needed)`); score += lim - d; }
+          }
+          for (const e of site.existing) {
+            if (e.footprint.length < 3) continue;
+            const d = polyDist(poly, e.footprint);
+            const san = (CATALOG[it.type].habitable && e.kind === 'sauna') || (it.type === 'sauna' && e.kind === 'house');
+            if (san && d < rules.houseToSauna) { reasons.push(`${d.toFixed(1)} m from the existing ${e.label.split(' (')[0].toLowerCase()} (${rules.houseToSauna} m sanitary distance)`); score += rules.houseToSauna - d; }
+            if (d <= 0 && !e.removable && e.kind !== 'gate') { reasons.push(`overlaps the ${e.label.split(' (')[0].toLowerCase()}`); score += 5; }
+          }
+          if (!best || score < best.score) best = { score, reasons };
+        }
+      }
+    }
+    const name = it.label.split(' ·')[0];
+    if (!best) out.push(`${name} (${it.w}×${it.d} m) is larger than the corner.`);
+    else if (best.score <= 1e-6) out.push(`${name} (${it.w}×${it.d} m) fits in the owner's corner.`);
+    else out.push(`${name} (${it.w}×${it.d} m) does not fit in the owner's corner: at best it is ${[...new Set(best.reasons)].join('; ')}.`);
+  }
+  return out;
 }
 
 export { describeZone };
