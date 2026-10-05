@@ -4,7 +4,10 @@
 
 1. Install **Python 3.11 or newer** from https://www.python.org/downloads/ and tick
    "Add python.exe to PATH" in the installer.
-2. Unpack `mera-project.zip` somewhere with a short path, e.g. `C:\Projects\mera`.
+2. Unpack the archive parts (`mera-part01-app.zip`, `mera-part02-…`, …) all into the same folder
+   with a short path, e.g. `C:\Projects` (right-click › Extract All… › `C:\Projects`). Every part
+   contains a `mera` folder, so they merge into `C:\Projects\mera`. Part 1 alone runs the app; the
+   others add the video frames, the original videos and the 3D reconstruction.
 3. Double-click **`start-windows.bat`**. The first run creates `.venv` and installs three
    Python packages; then the browser opens http://127.0.0.1:8765.
    Close the black window to stop the app.
@@ -63,9 +66,9 @@ make pipeline                # ~60 min for this footage on 4 cores
 make run                     # then open http://127.0.0.1:8765 in Windows
 ```
 
-`mera-reconstruction.zip` (optional) holds the finished 3D reconstruction
-(`data\projects\plot\work\sfm`, without the matching database). With it unpacked into the
-project, `make site` and `make model` work without re-running the reconstruction.
+The parts named `reconstruction` hold the finished 3D reconstruction
+(`data\projects\plot\work\sfm`, without the 1.6 GB matching database). With them unpacked,
+`make site` and `make model` work without re-running the reconstruction.
 
 ## Check an exported file
 
