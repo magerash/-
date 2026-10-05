@@ -6,6 +6,8 @@ import path from 'node:path';
 const PID = process.env.PID ?? 'plot';
 const OUT = path.resolve('test-results/exports');
 const ROOT = path.resolve('..');
+// the Python with trimesh/pillow (and optionally bpy): python3 on Linux and macOS, python on Windows
+const PYTHON = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
 
 type Win = {
   __mera: { project: (x: number, y: number, z: number) => [number, number] };
@@ -217,7 +219,7 @@ test('makes own variants on the corrected site, compares them and exports a text
     expect(n).toBeGreaterThan(20);
     await page.mouse.click(5, 300);
   }
-  const out = execFileSync('python3', [path.join(ROOT, 'pipeline/verify_export.py'), ...files, '--site', path.join(ROOT, `data/projects/${PID}/site.json`)], { encoding: 'utf8' });
+  const out = execFileSync(PYTHON, [path.join(ROOT, 'pipeline/verify_export.py'), ...files, '--site', path.join(ROOT, `data/projects/${PID}/site.json`)], { encoding: 'utf8' });
   console.log(out.split('\n').filter((l) => /expected|trimesh|obj-text|blender :|New_|ALL|FAIL/.test(l)).join('\n'));
   expect(out).toContain('ALL OK');
   await page.request.put(`/api/projects/${PID}/variants`, { data: { variants: [] } });
