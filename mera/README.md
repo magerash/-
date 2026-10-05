@@ -18,6 +18,8 @@ video(s) + voice ─► keyframes ─► transcript ─► facts ─► SfM (COL
 
 ## Run it
 
+On Windows, see [WINDOWS.md](WINDOWS.md): unpack, double-click `start-windows.bat`.
+
 Requirements: Python 3.11, Node 20+, ffmpeg, ~2 GB disk for models.
 
 ```bash
