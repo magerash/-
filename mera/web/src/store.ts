@@ -37,6 +37,7 @@ interface State {
   transcript: Transcript | null;
   frames: FrameInfo[];
   loadError: string | null;
+  modelError: string | null; // the 3D model could not be loaded
   mode: Mode;
   view: ViewMode;
   tool: Tool;
@@ -69,6 +70,7 @@ export const useStore = create<State>((set) => ({
   transcript: null,
   frames: [],
   loadError: null,
+  modelError: null,
   mode: 'site',
   view: 'orbit',
   tool: 'none',

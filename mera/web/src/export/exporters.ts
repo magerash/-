@@ -11,6 +11,7 @@ import type { SiteModel, Variant } from '../types';
 import { STATIC, fetchBinary, hostSave } from '../host';
 import { api } from '../api';
 import { isScenery, loadSiteModel, pickOf } from '../scene/SiteModel';
+import { packGLB, readGLB, type GltfJson } from '../scene/glb';
 import { MAT_COLORS, placedParts, ribbon, type MatKey, type Part } from '../scene/geometry';
 
 export interface ExportOptions {
@@ -217,22 +218,31 @@ export function readmeFor(site: SiteModel, variant: Variant | null): string {
   ].join('\n');
 }
 
-/** Re-import a GLB we just produced and measure it, as a self-check shown in the UI. */
+/**
+ * Re-import a GLB we just produced and measure it, as a self-check shown in the UI. Textures are
+ * counted from the file itself (each embedded image must start with a JPEG or PNG signature); the
+ * geometry is loaded without them, so the check needs no image decoding or blob URLs.
+ */
 export async function verifyGLB(buf: ArrayBuffer): Promise<{ fenceW: number; fenceD: number; objects: number; textures: number; height: number }> {
-  const gltf = await new GLTFLoader().parseAsync(buf.slice(0), '');
+  const { json, bin } = readGLB(buf);
+  const views = (json.bufferViews ?? []) as { byteOffset?: number; byteLength: number }[];
+  const textures = ((json.images ?? []) as { bufferView?: number }[]).filter((im) => {
+    if (im.bufferView === undefined) return false;
+    const v = views[im.bufferView];
+    const b = bin.subarray(v.byteOffset ?? 0, (v.byteOffset ?? 0) + 4);
+    return (b[0] === 0xff && b[1] === 0xd8) || (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47);
+  }).length;
+  const geometry: GltfJson = { ...json, materials: ((json.materials ?? []) as { name?: string }[]).map((m) => ({ name: m.name })) };
+  delete geometry.images;
+  delete geometry.textures;
+  delete geometry.samplers;
+  const gltf = await new GLTFLoader().parseAsync(packGLB(geometry, bin), '');
   const f = gltf.scene.getObjectByName('Fences');
   const box = new THREE.Box3().setFromObject(f ?? gltf.scene);
   const all = new THREE.Box3().setFromObject(gltf.scene);
   let objects = 0;
-  const images = new Set<unknown>();
-  gltf.scene.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    objects++;
-    const map = (m.material as THREE.MeshBasicMaterial).map;
-    if (map?.image) images.add(map.image);
-  });
-  return { fenceW: box.max.x - box.min.x, fenceD: box.max.z - box.min.z, objects, textures: images.size, height: all.max.y - all.min.y };
+  gltf.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) objects++; });
+  return { fenceW: box.max.x - box.min.x, fenceD: box.max.z - box.min.z, objects, textures, height: all.max.y - all.min.y };
 }
 
 /** Saves a file and resolves with the name it was saved under. */

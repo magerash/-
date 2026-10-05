@@ -15,6 +15,8 @@ type Win = {
 async function open(page: Page) {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  // the server sends the same content policy as the hosted copy: nothing may be refused
+  page.on('console', (m) => { if (/Refused to|Content Security Policy|site model:/.test(m.text())) errors.push(m.text().slice(0, 200)); });
   const model = page.waitForResponse((r) => r.url().includes('/site/model.gltf.json') && r.ok(), { timeout: 60_000 });
   const ground = page.waitForResponse((r) => r.url().includes('/site/tex/ground.jpg') && r.ok(), { timeout: 60_000 });
   await page.goto(`/?p=${PID}`);
@@ -54,6 +56,7 @@ test('first open: the textured model and nothing else', async ({ page }) => {
   await expect(page.locator('.lbl')).toHaveCount(0);
   await expect(page.locator('.pin-dot')).toHaveCount(0);
   await expect(page.getByTestId('survey-notes')).toHaveCount(0);
+  await expect(page.getByText("The 3D model didn't load")).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'About this plot' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'On the plot' })).toBeVisible();
   // the narration is the video author's, never presented as the owner's words

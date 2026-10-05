@@ -7,6 +7,7 @@ import type { ThreeEvent } from '@react-three/fiber';
 import type { SiteModel as Site, Variant } from '../types';
 import { useStore, type Selection } from '../store';
 import { api } from '../api';
+import { base64Bytes, packGLB, type GltfJson } from './glb';
 
 const cache = new Map<string, Promise<GLTF>>();
 
@@ -18,9 +19,13 @@ export function loadSiteModel(pid: string, site: Site): Promise<GLTF> {
     p = (async () => {
       const r = await fetch(url);
       if (!r.ok) throw new Error(`${r.status} ${url}`);
-      const text = await r.text();
+      const json: GltfJson = await r.json();
       const base = url.slice(0, url.lastIndexOf('/') + 1);
-      const gltf = await new GLTFLoader().parseAsync(text, base);
+      // geometry is embedded as base64; unpack it here, since hosts may refuse to fetch data: URLs
+      const b0 = json.buffers?.[0];
+      const gltf = typeof b0?.uri === 'string' && b0.uri.startsWith('data:')
+        ? await new GLTFLoader().parseAsync(packGLB(json, base64Bytes(b0.uri.slice(b0.uri.indexOf(',') + 1))), base)
+        : await new GLTFLoader().parseAsync(JSON.stringify(json), base);
       gltf.scene.traverse((o) => {
         const m = (o as THREE.Mesh).material as THREE.Material | undefined;
         if (!m) return;
@@ -61,10 +66,12 @@ export function SiteModelView({ site, variant, interactive }: { site: Site; vari
   const pid = useStore((s) => s.projectId);
   const set = useStore((s) => s.set);
   const [gltf, setGltf] = useState<GLTF | null>(null);
-  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    loadSiteModel(pid, site).then((g) => alive && setGltf(g)).catch((e) => alive && setError(String(e)));
+    loadSiteModel(pid, site).then((g) => alive && setGltf(g)).catch((e) => {
+      console.warn('site model:', e);
+      if (alive) set({ modelError: (e as Error).message ?? String(e) });
+    });
     return () => { alive = false; };
   }, [pid, site]);
   // each view gets its own node tree; geometry, materials and textures are shared
@@ -78,7 +85,6 @@ export function SiteModelView({ site, variant, interactive }: { site: Site; vari
       if (isScenery(node)) node.traverse((o) => { o.raycast = () => {}; });
     }
   }, [root, variant]);
-  if (error) console.warn('site model:', error);
   if (!root) return null;
   if (!interactive) return <primitive object={root} />;
   const mode = () => useStore.getState();

@@ -34,6 +34,18 @@ ALLOWED = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm", ".wav", ".m4a", ".mp
 PID_RX = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 
 app = FastAPI(title="Mera")
+
+# The same limits a page host like claude.ai artifacts puts on the shared copy: the page may fetch
+# only its own files (no data: or blob: fetches), so problems show up here first, not after publishing.
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+       "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:")
+
+
+@app.middleware("http")
+async def content_policy(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = CSP
+    return response
 _running: dict[str, subprocess.Popen] = {}
 
 

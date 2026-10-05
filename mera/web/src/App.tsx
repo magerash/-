@@ -19,7 +19,7 @@ export default function App() {
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null);
   const [screen, setScreen] = useState<'loading' | 'new' | 'progress' | 'site'>('loading');
   const [panelOpen, setPanelOpen] = useState(true);
-  const { site, mode, set, variants, compare, exportOpen, loadError } = useStore();
+  const { site, mode, set, variants, compare, exportOpen, loadError, modelError } = useStore();
   const variant = useStore(activeVariantOf);
   const pid = useStore((s) => s.projectId);
   const selection = useStore((s) => s.selection);
@@ -104,6 +104,15 @@ export default function App() {
               <div ref={(el) => { if (el) labelPortal.current = el; }} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 1 }} />
               <PhotoOverlay site={site} />
               <FirstHint />
+              {modelError && (
+                <div className="center" style={{ position: 'absolute', inset: 0, zIndex: 30, pointerEvents: 'none' }}>
+                  <div className="card" style={{ pointerEvents: 'auto' }}>
+                    <h2>The 3D model didn't load</h2>
+                    <p className="muted">{modelError}</p>
+                    <button className="btn" onClick={() => window.location.reload()}>Reload</button>
+                  </div>
+                </div>
+              )}
               <Toolbar />
             </>
           )}
